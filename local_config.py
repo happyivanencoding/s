@@ -1,16 +1,13 @@
 # -*- coding: utf-8 -*-
-"""
-Configuration du modèle sectoriel Europe.
-
-Ce fichier est versionné dans Git.
-Les chemins Excel sont volontairement vides dans la version publique.
-
-Pour un poste local, utiliser local_config_private.py pour renseigner
-uniquement les chemins des fichiers Excel.
-"""
+"""Configuration du modèle sectoriel Europe."""
 
 FICHIER_EXCEL_EU = ""
 FICHIER_EXCEL_MACRO = ""
+
+CONFIG_HISTORIQUE = {
+    "actif": True,
+    "dossier": "data_history",
+}
 
 SECTEURS = [
     "Materials",

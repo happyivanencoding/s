@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Visualisations simples du modèle sectoriel Europe.
+Visualisations du modèle sectoriel Europe.
 
 Exemples :
     python plot_secto_eu.py

@@ -2,7 +2,7 @@
 """
 Backtest rapide des sous-variables du modèle sectoriel Europe.
 
-Le principe est volontairement simple :
+Méthode de backtest :
 - signal calculé à la fin du mois t ;
 - Top N secteurs selon le score 0-10 ;
 - performance mesurée sur le mois t+1 ;
@@ -101,7 +101,7 @@ def max_drawdown(returns):
 
 
 def statistiques(backtest):
-    """Quelques statistiques simples pour comparer rapidement les variables."""
+    """Calcule les statistiques de comparaison des variables."""
     if backtest.empty:
         return {
             "n_months": 0,

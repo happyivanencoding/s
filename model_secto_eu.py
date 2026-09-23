@@ -7,8 +7,6 @@ Objectif :
 2. Recalculer en Python les scores des piliers avec la même logique qu'Excel.
 3. Produire les Top 3 / Worst 3 et la recommandation mensuelle.
 
-Les commentaires sont volontairement simples et détaillés pour faciliter
-les modifications futures.
 """
 
 from pathlib import Path
@@ -28,6 +26,7 @@ from openpyxl.utils import column_index_from_string
 
 from local_config import (
     ARRONDI_PILIER,
+    CONFIG_HISTORIQUE,
     CONFIG_MACRO_EU,
     CONFIG_MOMENTUM,
     CONFIG_SIGNAL_TAUX,
@@ -57,24 +56,17 @@ except ImportError:
     FICHIER_EXCEL_MACRO_PRIVE = ""
 
 
-def choisir_chemin(public, prive, variable_env):
-    """
-    Choisit un chemin sans écrire d'information locale dans le code public.
-
-    Ordre :
-    1. variable d'environnement ;
-    2. local_config_private.py ;
-    3. valeur publique de local_config.py.
-    """
+def choisir_chemin(configuration, surcharge, variable_env):
+    """Sélectionne le chemin configuré selon l'ordre de priorité défini."""
     chemin_env = os.getenv(variable_env)
     if chemin_env:
         return chemin_env
 
-    if prive:
-        return prive
+    if surcharge:
+        return surcharge
 
-    if public:
-        return public
+    if configuration:
+        return configuration
 
     return None
 
@@ -124,6 +116,115 @@ def convertir_date_excel(x):
 def est_date_excel(x):
     """Teste si la cellule contient une date exploitable."""
     return not pd.isna(convertir_date_excel(x))
+
+
+def normaliser_date_mensuelle(x):
+    """Ramène toute date au dernier jour calendaire de son mois."""
+    date = convertir_date_excel(x)
+
+    if pd.isna(date):
+        return pd.NaT
+
+    return pd.Timestamp(date).to_period("M").to_timestamp("M")
+
+
+def normaliser_index_mensuel(df):
+    """
+    Normalise un index mensuel avant toute jointure ou intersection.
+
+    Si plusieurs dates du même mois existent, la première occurrence est
+    conservée. Les données Excel sont lues du mois le plus récent au plus ancien.
+    """
+    resultat = df.copy()
+    resultat.index = pd.DatetimeIndex(
+        [normaliser_date_mensuelle(x) for x in resultat.index]
+    )
+    resultat = resultat[~resultat.index.duplicated(keep="first")]
+    return resultat.sort_index(ascending=False)
+
+
+def nom_fichier_historique(cle):
+    """Construit un nom de fichier stable pour une série historique."""
+    caracteres = []
+
+    for caractere in cle:
+        if caractere.isalnum() or caractere in {"_", "-"}:
+            caracteres.append(caractere)
+        else:
+            caracteres.append("_")
+
+    return "".join(caracteres) + ".csv"
+
+
+def figer_historique(df, dates_source, cle):
+    """
+    Conserve la première version enregistrée de chaque mois.
+
+    La clé du modèle est toujours la fin de mois. La date source observée
+    lors de la première insertion est conservée dans le fichier historique.
+    Les mois déjà présents ne sont jamais remplacés.
+    """
+    resultat = normaliser_index_mensuel(df)
+
+    dates_source = pd.Series(
+        [convertir_date_excel(x) for x in dates_source],
+        index=[normaliser_date_mensuelle(x) for x in dates_source],
+        name="date_source",
+    )
+    dates_source = dates_source[~dates_source.index.duplicated(keep="first")]
+
+    courant = resultat.copy()
+    courant.insert(
+        0,
+        "date_source",
+        dates_source.reindex(courant.index).values,
+    )
+    courant.index.name = "date"
+
+    if not CONFIG_HISTORIQUE.get("actif", True):
+        return resultat
+
+    dossier = Path(__file__).resolve().parent / CONFIG_HISTORIQUE["dossier"]
+    dossier.mkdir(parents=True, exist_ok=True)
+
+    fichier = dossier / nom_fichier_historique(cle)
+
+    if fichier.exists():
+        historique = pd.read_csv(
+            fichier,
+            index_col="date",
+            parse_dates=["date", "date_source"],
+        )
+        historique.index = pd.DatetimeIndex(
+            [normaliser_date_mensuelle(x) for x in historique.index]
+        )
+        historique = historique[
+            ~historique.index.duplicated(keep="first")
+        ]
+
+        nouveaux_mois = courant.loc[
+            ~courant.index.isin(historique.index)
+        ]
+
+        combine = pd.concat(
+            [historique, nouveaux_mois],
+            axis=0,
+            sort=False,
+        )
+    else:
+        combine = courant
+
+    combine = combine.sort_index(ascending=False)
+    combine.index.name = "date"
+    combine.to_csv(fichier, date_format="%Y-%m-%d")
+
+    colonnes = list(df.columns)
+
+    for colonne in colonnes:
+        if colonne not in combine.columns:
+            combine[colonne] = np.nan
+
+    return combine[colonnes].copy()
 
 
 def rang_excel(valeur, valeurs, ordre):
@@ -217,6 +318,7 @@ def lire_dates_et_bloc(ws, colonne_depart, ligne_depart=8, colonne_date="A"):
     col_date = column_index_from_string(colonne_date)
 
     dates = []
+    dates_source = []
     donnees = []
     ligne = ligne_depart
 
@@ -231,11 +333,15 @@ def lire_dates_et_bloc(ws, colonne_depart, ligne_depart=8, colonne_date="A"):
             v = ws.cell(ligne, col_start + j).value
             valeurs.append(float(v) if est_nombre(v) else np.nan)
 
-        dates.append(convertir_date_excel(date_brute))
+        date_source = convertir_date_excel(date_brute)
+        dates.append(date_source)
+        dates_source.append(date_source)
         donnees.append(valeurs)
         ligne += 1
 
-    return pd.DataFrame(donnees, index=dates, columns=SECTEURS)
+    df = pd.DataFrame(donnees, index=dates, columns=SECTEURS)
+    cle = f"{ws.title}_{colonne_depart}"
+    return figer_historique(df, dates_source, cle)
 
 
 def lire_bloc_retours(ws):
@@ -247,6 +353,7 @@ def lire_bloc_retours(ws):
     col_start = column_index_from_string(cfg["colonne_debut_retours"])
 
     dates = []
+    dates_source = []
     donnees = []
 
     while True:
@@ -259,23 +366,25 @@ def lire_bloc_retours(ws):
             v = ws.cell(ligne, col_start + j).value
             valeurs.append(float(v) if est_nombre(v) else np.nan)
 
-        dates.append(convertir_date_excel(date_brute))
+        date_source = convertir_date_excel(date_brute)
+        dates.append(date_source)
+        dates_source.append(date_source)
         donnees.append(valeurs)
         ligne += 1
 
-    return pd.DataFrame(donnees, index=dates, columns=SECTEURS)
+    df = pd.DataFrame(donnees, index=dates, columns=SECTEURS)
+    cle = f"{ws.title}_retours"
+    return figer_historique(df, dates_source, cle)
 
 
 def lire_macro_externe(wb_macro):
     """
-    Lit les deux outputs finaux du fichier macro externe.
+    Lit les deux outputs finaux du fichier macro Europe :
+    - Signal multi quantitatif ;
+    - New Cycle.
 
-    Pour l'Europe, la configuration publique pointe vers :
-    - score macro : Signal multi quantitatif ;
-    - régime : New Cycle.
-
-    Le score macro est conservé dans les sorties pour contrôle.
-    Le régime sert ensuite à appliquer les poids C / R / E / SD.
+    Le score macro est conservé dans les sorties de contrôle.
+    Le régime sert à appliquer les poids C / R / E / SD.
     """
     cfg = CONFIG_MACRO_EU
     ws = wb_macro[cfg["sheet"]]
@@ -285,7 +394,8 @@ def lire_macro_externe(wb_macro):
     col_score = column_index_from_string(cfg["colonne_score"])
     col_regime = column_index_from_string(cfg["colonne_regime"])
 
-    lignes = []
+    dates_source = []
+    donnees = []
 
     while True:
         date_brute = ws.cell(ligne, col_date).value
@@ -294,17 +404,20 @@ def lire_macro_externe(wb_macro):
 
         score = ws.cell(ligne, col_score).value
         regime = ws.cell(ligne, col_regime).value
+        date_source = convertir_date_excel(date_brute)
 
-        lignes.append(
+        dates_source.append(date_source)
+        donnees.append(
             {
-                "date": convertir_date_excel(date_brute),
                 "macro_score": float(score) if est_nombre(score) else np.nan,
                 "cycle": regime if regime in POIDS_REGIME else None,
             }
         )
         ligne += 1
 
-    return pd.DataFrame(lignes).set_index("date").sort_index()
+    df = pd.DataFrame(donnees, index=dates_source)
+    df = figer_historique(df, dates_source, "macro_eu_outputs")
+    return df.sort_index()
 
 
 def lire_taux_us10y(wb_eu):
@@ -321,7 +434,8 @@ def lire_taux_us10y(wb_eu):
     col_date = column_index_from_string(cfg["colonne_date"])
     col_us10y = column_index_from_string(cfg["colonne_us10y"])
 
-    lignes = []
+    dates_source = []
+    donnees = []
 
     while True:
         date_brute = ws.cell(ligne, col_date).value
@@ -329,16 +443,19 @@ def lire_taux_us10y(wb_eu):
             break
 
         taux = ws.cell(ligne, col_us10y).value
+        date_source = convertir_date_excel(date_brute)
 
-        lignes.append(
+        dates_source.append(date_source)
+        donnees.append(
             {
-                "date": convertir_date_excel(date_brute),
                 "us10y": float(taux) if est_nombre(taux) else np.nan,
             }
         )
         ligne += 1
 
-    return pd.DataFrame(lignes).set_index("date").sort_index()
+    df = pd.DataFrame(donnees, index=dates_source)
+    df = figer_historique(df, dates_source, "signal_taux_us10y")
+    return df.sort_index()
 
 
 def percentrank_inc(valeurs, x):
@@ -563,7 +680,7 @@ def calculer_piliers_historiques(wb):
                 if any(pd.isna(v) for v in valeurs):
                     pilier_df.at[date, secteur] = np.nan
                 else:
-                    # AVERAGE Excel : addition simple puis division.
+                    # AVERAGE Excel : addition puis division.
                     # On évite np.mean pour garder les mêmes arrondis binaires.
                     pilier_df.at[date, secteur] = sum(valeurs) / len(valeurs)
 
@@ -717,13 +834,35 @@ def calculer_volatilite(wb):
 # ---------------------------------------------------------------------------
 
 def aligner_piliers(piliers):
-    """Aligne les six piliers sur les dates communes."""
+    """
+    Aligne les piliers par mois calendaire.
+
+    Toute date est d'abord ramenée au dernier jour de son mois.
+    Ainsi, 28/08, 29/08 et 31/08 représentent tous 31/08.
+    """
+    piliers_normalises = {
+        nom: normaliser_index_mensuel(df)
+        for nom, df in piliers.items()
+    }
+
     dates = None
-    for df in piliers.values():
-        dates = df.index if dates is None else dates.intersection(df.index)
+
+    for df in piliers_normalises.values():
+        dates = (
+            df.index
+            if dates is None
+            else dates.intersection(df.index)
+        )
+
+    if dates is None or len(dates) == 0:
+        raise ValueError("Aucune date mensuelle commune entre les piliers.")
 
     dates = dates.sort_values(ascending=False)
-    return {nom: df.loc[dates].copy() for nom, df in piliers.items()}
+
+    return {
+        nom: df.loc[dates].copy()
+        for nom, df in piliers_normalises.items()
+    }
 
 
 def calculer_rangs_piliers(piliers):
@@ -985,7 +1124,7 @@ def calculer_modele(
 
 
 def sauvegarder_sorties(resultats, dossier_sortie):
-    """Sauvegarde des CSV simples et faciles à contrôler."""
+    """Sauvegarde les fichiers CSV de contrôle et de résultat."""
     dossier = Path(dossier_sortie)
     dossier.mkdir(parents=True, exist_ok=True)
 
@@ -1064,7 +1203,7 @@ def sauvegarder_sorties(resultats, dossier_sortie):
 
 
 def afficher_latest(resultats):
-    """Affichage console volontairement compact."""
+    """Affiche la dernière recommandation disponible."""
     historique = resultats["historique"]
 
     if historique.empty:

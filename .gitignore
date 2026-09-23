@@ -1,9 +1,10 @@
-# Configuration locale privée
+# Surcharges de configuration
 local_config_private.py
 
-# Fichiers demandés uniquement en local
+# Fichiers de travail
 README.md
 output/
+data_history/
 
 # Python
 __pycache__/
