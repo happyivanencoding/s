@@ -10,7 +10,6 @@ Objectif :
 """
 
 from pathlib import Path
-import argparse
 import math
 import os
 
@@ -1248,29 +1247,8 @@ def afficher_latest(resultats):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Modèle sectoriel Europe")
-    parser.add_argument(
-        "--excel",
-        default=FICHIER_EXCEL_PAR_DEFAUT,
-        help="Chemin du fichier Score_Sectoriel_EU.xlsm",
-    )
-    parser.add_argument(
-        "--macro-excel",
-        default=FICHIER_MACRO_PAR_DEFAUT,
-        help="Chemin du fichier macro Europe",
-    )
-    parser.add_argument(
-        "--output",
-        default=str(DOSSIER_SORTIE_PAR_DEFAUT),
-        help="Dossier de sortie",
-    )
-    args = parser.parse_args()
-
-    resultats = calculer_modele(
-        args.excel,
-        fichier_macro=args.macro_excel,
-    )
-    sauvegarder_sorties(resultats, args.output)
+    resultats = calculer_modele()
+    sauvegarder_sorties(resultats, DOSSIER_SORTIE_PAR_DEFAUT)
     afficher_latest(resultats)
 
 

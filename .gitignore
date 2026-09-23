@@ -5,6 +5,7 @@ local_config_private.py
 README.md
 output/
 data_history/
+audit_modele_eu_executed.ipynb
 
 # Python
 __pycache__/
