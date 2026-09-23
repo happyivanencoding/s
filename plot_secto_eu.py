@@ -15,9 +15,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from local_config import POIDS_BASE, SECTEURS, VARIABLES_BACKTEST
 from model_secto_eu import (
     FICHIER_EXCEL_PAR_DEFAUT,
-    SECTEURS,
+    FICHIER_MACRO_PAR_DEFAUT,
     calculer_modele,
 )
 
@@ -51,7 +52,7 @@ def trouver_date(piliers, date_demandee=None):
 
 def plot_heatmap_piliers(piliers, date, fichier_sortie):
     """Heatmap 0-10 des six piliers pour les 13 secteurs."""
-    noms_piliers = ["Leverage", "Margin", "Value", "Momentum", "Growth", "Volatility"]
+    noms_piliers = list(POIDS_BASE)
 
     matrice = np.array(
         [[piliers[p].at[date, s] for p in noms_piliers] for s in SECTEURS],
@@ -104,18 +105,7 @@ def plot_rang_global(historique, date, fichier_sortie):
 
 def plot_sous_variables(resultats, pilier, date, fichier_sortie):
     """Compare les sous-variables d'un pilier pour la date choisie."""
-    groupes = {
-        "Leverage": ["net_debt_ebitda", "fcf_total_debt", "debt_equity"],
-        "Margin": ["operating_margin", "net_margin", "ebitda_margin"],
-        "Value": ["price_fcf", "ev_ebitda", "price_sales"],
-        "Momentum": [
-            "momentum_6m_1m",
-            "momentum_12m_1m",
-            "earnings_revision_ratio",
-        ],
-        "Growth": ["eps_growth", "sales_growth", "ebitda_growth"],
-        "Volatility": ["volatility_6m", "downside_volatility_18m"],
-    }
+    groupes = VARIABLES_BACKTEST
 
     if pilier not in groupes:
         raise ValueError(f"Pilier inconnu : {pilier}")
@@ -156,6 +146,7 @@ def plot_sous_variables(resultats, pilier, date, fichier_sortie):
 def main():
     parser = argparse.ArgumentParser(description="Plots du modèle sectoriel EU")
     parser.add_argument("--excel", default=FICHIER_EXCEL_PAR_DEFAUT)
+    parser.add_argument("--macro-excel", default=FICHIER_MACRO_PAR_DEFAUT)
     parser.add_argument("--date", default=None, help="Exemple : 2026-08-31")
     parser.add_argument(
         "--pillar",
@@ -168,7 +159,10 @@ def main():
     dossier = Path(args.output)
     dossier.mkdir(parents=True, exist_ok=True)
 
-    resultats = calculer_modele(args.excel)
+    resultats = calculer_modele(
+        args.excel,
+        fichier_macro=args.macro_excel,
+    )
     date = trouver_date(resultats["piliers"], args.date)
 
     plot_heatmap_piliers(

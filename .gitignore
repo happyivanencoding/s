@@ -1,5 +1,5 @@
-# Configuration locale
-local_config.py
+# Configuration locale privée
+local_config_private.py
 
 # Fichiers demandés uniquement en local
 README.md

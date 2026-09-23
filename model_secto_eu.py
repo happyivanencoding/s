@@ -23,217 +23,78 @@ from openpyxl.utils import column_index_from_string
 
 
 # ---------------------------------------------------------------------------
-# 1. PARAMÈTRES GÉNÉRAUX
+# 1. CONFIGURATION
 # ---------------------------------------------------------------------------
 
-def charger_fichier_excel_par_defaut():
-    """
-    Cherche le fichier Excel sans écrire de chemin local dans le code public.
+from local_config import (
+    ARRONDI_PILIER,
+    CONFIG_MACRO_EU,
+    CONFIG_MOMENTUM,
+    CONFIG_SIGNAL_TAUX,
+    CONFIG_VOLATILITE,
+    EXCLUSIONS_PILIER,
+    FENETRE_HISTORIQUE,
+    FICHIER_EXCEL_EU,
+    FICHIER_EXCEL_MACRO,
+    N_TOP,
+    N_WORST,
+    PILIERS_RATE_OVERLAY,
+    POIDS_BASE,
+    POIDS_REGIME,
+    POIDS_VOTE_MACRO,
+    SECTEURS,
+    SECTEURS_SANS_VOTE_TOP_WORST,
+    VARIABLES_HISTORIQUES,
+)
 
-    Ordre utilisé :
-    1. variable d'environnement SCORE_SECTORIEL_EU_XLSM ;
-    2. fichier local_config.py, présent uniquement sur la machine locale.
+try:
+    from local_config_private import (
+        FICHIER_EXCEL_EU as FICHIER_EXCEL_EU_PRIVE,
+        FICHIER_EXCEL_MACRO as FICHIER_EXCEL_MACRO_PRIVE,
+    )
+except ImportError:
+    FICHIER_EXCEL_EU_PRIVE = ""
+    FICHIER_EXCEL_MACRO_PRIVE = ""
+
+
+def choisir_chemin(public, prive, variable_env):
     """
-    chemin_env = os.getenv("SCORE_SECTORIEL_EU_XLSM")
+    Choisit un chemin sans écrire d'information locale dans le code public.
+
+    Ordre :
+    1. variable d'environnement ;
+    2. local_config_private.py ;
+    3. valeur publique de local_config.py.
+    """
+    chemin_env = os.getenv(variable_env)
     if chemin_env:
         return chemin_env
 
-    try:
-        from local_config import FICHIER_EXCEL_EU
-        return FICHIER_EXCEL_EU
-    except ImportError:
-        return None
+    if prive:
+        return prive
+
+    if public:
+        return public
+
+    return None
 
 
-FICHIER_EXCEL_PAR_DEFAUT = charger_fichier_excel_par_defaut()
+FICHIER_EXCEL_PAR_DEFAUT = choisir_chemin(
+    FICHIER_EXCEL_EU,
+    FICHIER_EXCEL_EU_PRIVE,
+    "SCORE_SECTORIEL_EU_XLSM",
+)
+
+FICHIER_MACRO_PAR_DEFAUT = choisir_chemin(
+    FICHIER_EXCEL_MACRO,
+    FICHIER_EXCEL_MACRO_PRIVE,
+    "SCORE_MACRO_EU_XLSX",
+)
 
 DOSSIER_SORTIE_PAR_DEFAUT = Path(__file__).resolve().parent / "output"
 
-# Ordre exact utilisé dans le fichier Excel Europe.
-SECTEURS = [
-    "Materials",
-    "ConsStaples",
-    "Pers. Goods",
-    "Fin",
-    "HealthCare",
-    "Indus",
-    "Oil",
-    "Tech",
-    "Telco",
-    "Utili",
-    "Travel & leisure",
-    "Media",
-    "Auto",
-]
-
 N_SECTEURS = len(SECTEURS)
-
-# Excel utilise un historique de 60 mois + le mois courant = 61 observations.
-FENETRE_HISTORIQUE = 60
 N_OBSERVATIONS_RANK = FENETRE_HISTORIQUE + 1
-
-# Nombre de secteurs retenus dans les Top / Worst.
-N_TOP = 3
-N_WORST = 3
-
-# Deux sorties macro nécessaires dans la feuille "Cycle macro".
-# M = régime macro : C / R / E / SD
-# V = signal de taux : On / Off
-COLONNE_CYCLE_MACRO = "M"
-COLONNE_SIGNAL_TAUX = "V"
-
-# Poids du modèle de base Europe : 6 piliers équipondérés.
-POIDS_BASE = {
-    "Leverage": 1 / 6,
-    "Margin": 1 / 6,
-    "Value": 1 / 6,
-    "Momentum": 1 / 6,
-    "Growth": 1 / 6,
-    "Volatility": 1 / 6,
-}
-
-# Poids exacts de la table de tilt macro du fichier Europe.
-POIDS_REGIME = {
-    "C": {
-        "Leverage": 0.10,
-        "Margin": 0.00,
-        "Value": 0.00,
-        "Momentum": 0.30,
-        "Growth": 0.20,
-        "Volatility": 0.40,
-    },
-    "R": {
-        "Leverage": 0.10,
-        "Margin": 0.10,
-        "Value": 0.10,
-        "Momentum": 0.35,
-        "Growth": 0.35,
-        "Volatility": 0.00,
-    },
-    "E": {
-        "Leverage": 1 / 6,
-        "Margin": 1 / 6,
-        "Value": 1 / 6,
-        "Momentum": 1 / 6,
-        "Growth": 1 / 6,
-        "Volatility": 1 / 6,
-    },
-    "SD": {
-        "Leverage": 0.00,
-        "Margin": 0.00,
-        "Value": 0.30,
-        "Momentum": 0.10,
-        "Growth": 0.30,
-        "Volatility": 0.30,
-    },
-}
-
-# Configuration des sous-variables directement utilisées dans les piliers.
-# "ordre_rank":
-#   1 = une valeur plus élevée est meilleure.
-#   0 = une valeur plus faible est meilleure.
-#
-# "moyenne_sans_finance":
-#   Excel exclut explicitement Financials de la moyenne sectorielle
-#   pour certaines métriques non pertinentes.
-VARIABLES_HISTORIQUES = {
-    "Leverage": {
-        "net_debt_ebitda": {
-            "sheet": "Leverage_FMA",
-            "colonne": "AF",
-            "ordre_rank": 0,
-            "moyenne_sans_finance": False,
-            "mix_rank_transversal": False,
-        },
-        "fcf_total_debt": {
-            "sheet": "Leverage_FMA",
-            "colonne": "FB",
-            "ordre_rank": 1,
-            "moyenne_sans_finance": False,
-            "mix_rank_transversal": False,
-        },
-        "debt_equity": {
-            "sheet": "Leverage_FMA",
-            "colonne": "GR",
-            "ordre_rank": 0,
-            "moyenne_sans_finance": False,
-            "mix_rank_transversal": False,
-        },
-    },
-    "Margin": {
-        "operating_margin": {
-            "sheet": "Margin_FMA",
-            "colonne": "BV",
-            "ordre_rank": 1,
-            "moyenne_sans_finance": False,
-            "mix_rank_transversal": True,
-        },
-        "net_margin": {
-            "sheet": "Margin_FMA",
-            "colonne": "DL",
-            "ordre_rank": 1,
-            "moyenne_sans_finance": False,
-            "mix_rank_transversal": True,
-        },
-        "ebitda_margin": {
-            "sheet": "Margin_FMA",
-            "colonne": "GR",
-            "ordre_rank": 1,
-            "moyenne_sans_finance": False,
-            "mix_rank_transversal": True,
-        },
-    },
-    "Value": {
-        "price_fcf": {
-            "sheet": "Valuation_FMA_hist",
-            "colonne": "DL",
-            "ordre_rank": 0,
-            "moyenne_sans_finance": True,
-            "mix_rank_transversal": False,
-            # Excel utilise 36 mois pour Technology sur cette métrique.
-            "fenetre_par_secteur": {"Tech": 36},
-        },
-        "ev_ebitda": {
-            "sheet": "Valuation_FMA_hist",
-            "colonne": "FB",
-            "ordre_rank": 0,
-            "moyenne_sans_finance": True,
-            "mix_rank_transversal": False,
-            # Même exception de 36 mois pour Technology.
-            "fenetre_par_secteur": {"Tech": 36},
-        },
-        "price_sales": {
-            "sheet": "Valuation_FMA_hist",
-            "colonne": "GR",
-            "ordre_rank": 0,
-            "moyenne_sans_finance": False,
-            "mix_rank_transversal": False,
-        },
-    },
-    "Growth": {
-        "eps_growth": {
-            "sheet": "Growth_FMA",
-            "colonne": "AF",
-            "ordre_rank": 1,
-            "moyenne_sans_finance": False,
-            "mix_rank_transversal": False,
-        },
-        "sales_growth": {
-            "sheet": "Growth_FMA",
-            "colonne": "DL",
-            "ordre_rank": 1,
-            "moyenne_sans_finance": False,
-            "mix_rank_transversal": False,
-        },
-        "ebitda_growth": {
-            "sheet": "Growth_FMA",
-            "colonne": "FB",
-            "ordre_rank": 1,
-            "moyenne_sans_finance": True,
-            "mix_rank_transversal": False,
-        },
-    },
-}
 
 
 # ---------------------------------------------------------------------------
@@ -378,21 +239,22 @@ def lire_dates_et_bloc(ws, colonne_depart, ligne_depart=8, colonne_date="A"):
 
 
 def lire_bloc_retours(ws):
-    """
-    Lit les rendements mensuels sectoriels dans Returns_EQ.
-    Excel utilise P comme colonne de date et R:AD pour les 13 secteurs.
-    """
-    ligne = 7
+    """Lit les rendements mensuels sectoriels utilisés par le pilier Volatility."""
+    cfg = CONFIG_VOLATILITE
+
+    ligne = cfg["ligne_debut_retours"]
+    col_date = column_index_from_string(cfg["colonne_date"])
+    col_start = column_index_from_string(cfg["colonne_debut_retours"])
+
     dates = []
     donnees = []
 
     while True:
-        date_brute = ws.cell(ligne, column_index_from_string("P")).value
+        date_brute = ws.cell(ligne, col_date).value
         if not est_date_excel(date_brute):
             break
 
         valeurs = []
-        col_start = column_index_from_string("R")
         for j in range(N_SECTEURS):
             v = ws.cell(ligne, col_start + j).value
             valeurs.append(float(v) if est_nombre(v) else np.nan)
@@ -404,40 +266,161 @@ def lire_bloc_retours(ws):
     return pd.DataFrame(donnees, index=dates, columns=SECTEURS)
 
 
-def lire_cycle_macro(ws):
+def lire_macro_externe(wb_macro):
     """
-    Lit directement les deux sorties macro déjà calculées dans Excel.
+    Lit les deux outputs finaux du fichier macro externe.
 
-    Colonnes nécessaires dans la feuille "Cycle macro" :
-    - M : régime macro = C / R / E / SD
-    - V : signal de taux = On / Off
+    Pour l'Europe, la configuration publique pointe vers :
+    - score macro : Signal multi quantitatif ;
+    - régime : New Cycle.
 
-    Python ne recalcule ni le régime macro ni le signal de taux.
+    Le score macro est conservé dans les sorties pour contrôle.
+    Le régime sert ensuite à appliquer les poids C / R / E / SD.
     """
-    ligne = 4
+    cfg = CONFIG_MACRO_EU
+    ws = wb_macro[cfg["sheet"]]
+
+    ligne = cfg["ligne_debut"]
+    col_date = column_index_from_string(cfg["colonne_date"])
+    col_score = column_index_from_string(cfg["colonne_score"])
+    col_regime = column_index_from_string(cfg["colonne_regime"])
+
     lignes = []
 
-    col_cycle = column_index_from_string(COLONNE_CYCLE_MACRO)
-    col_taux = column_index_from_string(COLONNE_SIGNAL_TAUX)
-
     while True:
-        date_brute = ws.cell(ligne, 1).value
+        date_brute = ws.cell(ligne, col_date).value
         if not est_date_excel(date_brute):
             break
 
-        cycle = ws.cell(ligne, col_cycle).value
-        signal_taux = ws.cell(ligne, col_taux).value
+        score = ws.cell(ligne, col_score).value
+        regime = ws.cell(ligne, col_regime).value
 
         lignes.append(
             {
                 "date": convertir_date_excel(date_brute),
-                "cycle": cycle if cycle in POIDS_REGIME else None,
-                "signal_taux": signal_taux if signal_taux in {"On", "Off"} else None,
+                "macro_score": float(score) if est_nombre(score) else np.nan,
+                "cycle": regime if regime in POIDS_REGIME else None,
             }
         )
         ligne += 1
 
     return pd.DataFrame(lignes).set_index("date").sort_index()
+
+
+def lire_taux_us10y(wb_eu):
+    """
+    Lit uniquement la série US 10Y nécessaire au rate overlay.
+
+    Ce signal est séparé du macro cycle.
+    Le macro cycle lui-même vient du fichier macro externe.
+    """
+    cfg = CONFIG_SIGNAL_TAUX
+    ws = wb_eu[cfg["sheet"]]
+
+    ligne = cfg["ligne_debut"]
+    col_date = column_index_from_string(cfg["colonne_date"])
+    col_us10y = column_index_from_string(cfg["colonne_us10y"])
+
+    lignes = []
+
+    while True:
+        date_brute = ws.cell(ligne, col_date).value
+        if not est_date_excel(date_brute):
+            break
+
+        taux = ws.cell(ligne, col_us10y).value
+
+        lignes.append(
+            {
+                "date": convertir_date_excel(date_brute),
+                "us10y": float(taux) if est_nombre(taux) else np.nan,
+            }
+        )
+        ligne += 1
+
+    return pd.DataFrame(lignes).set_index("date").sort_index()
+
+
+def percentrank_inc(valeurs, x):
+    """Reproduit PERCENTRANK.INC d'Excel pour le signal de taux."""
+    valeurs = pd.Series(valeurs, dtype=float).dropna().sort_values().to_numpy()
+
+    if len(valeurs) == 0 or pd.isna(x):
+        return np.nan
+    if len(valeurs) == 1:
+        return 1.0
+    if x <= valeurs[0]:
+        return 0.0
+    if x >= valeurs[-1]:
+        return 1.0
+
+    positions = np.where(np.isclose(valeurs, x, rtol=0, atol=1e-12))[0]
+    if len(positions):
+        return positions[0] / (len(valeurs) - 1)
+
+    droite = np.searchsorted(valeurs, x, side="right")
+    gauche = droite - 1
+    x0, x1 = valeurs[gauche], valeurs[droite]
+    fraction = (x - x0) / (x1 - x0)
+
+    return (gauche + fraction) / (len(valeurs) - 1)
+
+
+def calculer_signal_taux(taux_us10y):
+    """
+    Reproduit le rate overlay du modèle sectoriel.
+
+    Le signal est On lorsque l'écart US10Y - EWMA se situe
+    au-dessus du percentile configuré.
+    """
+    cfg = CONFIG_SIGNAL_TAUX
+    alpha = cfg["alpha_ewma"]
+    seuil = cfg["seuil_percentile"]
+
+    df = taux_us10y.copy().sort_index()
+    df["ewma_us10y"] = np.nan
+    df["diff_ewma"] = np.nan
+    df["percentile_taux"] = np.nan
+    df["signal_taux"] = None
+
+    for i in range(len(df)):
+        taux = df.iloc[i]["us10y"]
+        if pd.isna(taux):
+            continue
+
+        if i == 0 or pd.isna(df.iloc[i - 1]["ewma_us10y"]):
+            ewma = taux
+        else:
+            ewma_prec = df.iloc[i - 1]["ewma_us10y"]
+            ewma = alpha * ewma_prec + (1 - alpha) * taux
+
+        df.iloc[i, df.columns.get_loc("ewma_us10y")] = ewma
+
+        diff = taux - ewma
+        df.iloc[i, df.columns.get_loc("diff_ewma")] = diff
+
+        historique = df["diff_ewma"].iloc[: i + 1]
+        percentile = percentrank_inc(historique, diff)
+        df.iloc[i, df.columns.get_loc("percentile_taux")] = percentile
+        df.iloc[i, df.columns.get_loc("signal_taux")] = (
+            "On" if percentile > seuil else "Off"
+        )
+
+    return df
+
+
+def construire_contexte_macro(wb_eu, wb_macro):
+    """
+    Assemble le macro externe et le rate overlay.
+
+    Le macro_score et le cycle viennent du fichier macro externe.
+    Le signal_taux est recalculé séparément à partir du US 10Y.
+    """
+    macro = lire_macro_externe(wb_macro)
+    taux = calculer_signal_taux(lire_taux_us10y(wb_eu))
+
+    contexte = macro.join(taux[["signal_taux"]], how="outer")
+    return contexte.sort_index()
 
 
 # ---------------------------------------------------------------------------
@@ -564,15 +547,13 @@ def calculer_piliers_historiques(wb):
             for secteur in SECTEURS:
                 valeurs = []
 
-                for nom_variable, score in scores_du_pilier.items():
-                    if pilier == "Growth" and secteur == "Fin" and nom_variable == "ebitda_growth":
-                        continue
-                    if pilier == "Value" and secteur == "Fin" and nom_variable == "price_fcf":
-                        continue
+                exclusions = EXCLUSIONS_PILIER.get(pilier, {}).get(
+                    secteur,
+                    set(),
+                )
 
-                    # Dans Excel, Technology utilise uniquement P/FCF + EV/EBITDA.
-                    # Price/Sales est explicitement exclu de la formule X8.
-                    if pilier == "Value" and secteur == "Tech" and nom_variable == "price_sales":
+                for nom_variable, score in scores_du_pilier.items():
+                    if nom_variable in exclusions:
                         continue
 
                     v = score.at[date, secteur]
@@ -586,12 +567,10 @@ def calculer_piliers_historiques(wb):
                     # On évite np.mean pour garder les mêmes arrondis binaires.
                     pilier_df.at[date, secteur] = sum(valeurs) / len(valeurs)
 
-        # Growth contient dans Excel quelques ex-aequo exacts qui peuvent
-        # devenir différents de ~1e-15 après les additions Python.
-        # Un arrondi à 14 décimales restitue le même classement Excel,
-        # sans modifier les autres piliers où ces micro-écarts sont utilisés.
-        if pilier == "Growth":
-            pilier_df = pilier_df.round(14)
+        # Certains piliers ont un arrondi explicite pour reproduire
+        # les ex-aequo observés dans Excel.
+        if pilier in ARRONDI_PILIER:
+            pilier_df = pilier_df.round(ARRONDI_PILIER[pilier])
 
         piliers[pilier] = pilier_df
 
@@ -603,37 +582,47 @@ def calculer_piliers_historiques(wb):
 # ---------------------------------------------------------------------------
 
 def calculer_momentum(wb):
-    """Reproduit MOM_FMA avec ses trois composantes."""
-    ws = wb["MOM_FMA"]
+    """Reproduit MOM_FMA avec la configuration définie dans local_config.py."""
+    cfg = CONFIG_MOMENTUM
+    ws = wb[cfg["sheet"]]
 
-    prix = lire_dates_et_bloc(ws, "AT")
-    up = lire_dates_et_bloc(ws, "DL")
-    down = lire_dates_et_bloc(ws, "DZ")
-    unchanged = lire_dates_et_bloc(ws, "EN")
+    prix = lire_dates_et_bloc(ws, cfg["colonne_prix"])
+    up = lire_dates_et_bloc(ws, cfg["colonne_revision_up"])
+    down = lire_dates_et_bloc(ws, cfg["colonne_revision_down"])
+    unchanged = lire_dates_et_bloc(ws, cfg["colonne_revision_unchanged"])
+
+    horizon_court = cfg["horizon_court"]
+    horizon_long = cfg["horizon_long"]
+    secteur_mois_courant = cfg["secteur_mois_courant"]
 
     ret_6m_1m = pd.DataFrame(index=prix.index, columns=SECTEURS, dtype=float)
     ret_12m_1m = pd.DataFrame(index=prix.index, columns=SECTEURS, dtype=float)
 
     for i in range(len(prix)):
-        # Excel : AT9 / AT14 - 1
-        if i + 6 < len(prix):
-            ret_6m_1m.iloc[i] = prix.iloc[i + 1] / prix.iloc[i + 6] - 1
-
-        # Excel : AT9 / AT20 - 1
-        if i + 12 < len(prix):
-            ret_12m_1m.iloc[i] = prix.iloc[i + 1] / prix.iloc[i + 12] - 1
-
-        # Exception présente dans le fichier Excel :
-        # Technology utilise le mois courant comme numérateur
-        # (BA8/BA14 et BA8/BA20), alors que les autres secteurs
-        # excluent le dernier mois.
-        if i + 6 < len(prix):
-            ret_6m_1m.at[prix.index[i], "Tech"] = (
-                prix.iloc[i]["Tech"] / prix.iloc[i + 6]["Tech"] - 1
+        # Formule standard : le dernier mois est exclu.
+        if i + horizon_court < len(prix):
+            ret_6m_1m.iloc[i] = (
+                prix.iloc[i + 1] / prix.iloc[i + horizon_court] - 1
             )
-        if i + 12 < len(prix):
-            ret_12m_1m.at[prix.index[i], "Tech"] = (
-                prix.iloc[i]["Tech"] / prix.iloc[i + 12]["Tech"] - 1
+
+        if i + horizon_long < len(prix):
+            ret_12m_1m.iloc[i] = (
+                prix.iloc[i + 1] / prix.iloc[i + horizon_long] - 1
+            )
+
+        # Exception explicitement configurée pour Technology.
+        if i + horizon_court < len(prix):
+            ret_6m_1m.at[prix.index[i], secteur_mois_courant] = (
+                prix.iloc[i][secteur_mois_courant]
+                / prix.iloc[i + horizon_court][secteur_mois_courant]
+                - 1
+            )
+
+        if i + horizon_long < len(prix):
+            ret_12m_1m.at[prix.index[i], secteur_mois_courant] = (
+                prix.iloc[i][secteur_mois_courant]
+                / prix.iloc[i + horizon_long][secteur_mois_courant]
+                - 1
             )
 
     revision_ratio = (up - down) / (up + down + unchanged)
@@ -642,9 +631,6 @@ def calculer_momentum(wb):
     score_12m = ret_12m_1m.apply(rang_transversal_momentum, axis=1)
     score_revision = revision_ratio.apply(rang_transversal_momentum, axis=1)
 
-    # On reproduit AVERAGE cellule par cellule.
-    # Cela conserve les mêmes micro-différences de flottants qu'Excel,
-    # qui peuvent parfois influencer RANK sur deux scores quasi identiques.
     momentum = pd.DataFrame(
         index=score_6m.index,
         columns=SECTEURS,
@@ -678,24 +664,23 @@ def calculer_momentum(wb):
 # ---------------------------------------------------------------------------
 
 def calculer_volatilite(wb):
-    """Reproduit Vol_FMA à partir des rendements mensuels de Returns_EQ."""
-    retours = lire_bloc_retours(wb["Returns_EQ"])
+    """Reproduit Vol_FMA avec la configuration définie dans local_config.py."""
+    cfg = CONFIG_VOLATILITE
+    retours = lire_bloc_retours(wb[cfg["sheet_retours"]])
 
     vol_6m = pd.DataFrame(index=retours.index, columns=SECTEURS, dtype=float)
     vol_down_18m = pd.DataFrame(index=retours.index, columns=SECTEURS, dtype=float)
 
+    n_obs_vol = cfg["offset_volatilite"] + 1
+    n_obs_downside = cfg["offset_downside"] + 1
+
     for i in range(len(retours)):
-        # Excel : STDEVA(current:OFFSET(current,6))*SQRT(12)
-        # OFFSET(...,6) inclut 7 observations : courant + 6 lignes.
-        if i + 7 <= len(retours):
-            fenetre = retours.iloc[i : i + 7]
+        if i + n_obs_vol <= len(retours):
+            fenetre = retours.iloc[i : i + n_obs_vol]
             vol_6m.iloc[i] = fenetre.std(ddof=1) * math.sqrt(12)
 
-        # Excel : STDEVA(IF(return<0, return))*SQRT(12)
-        # Dans cette formule matricielle, les FALSE sont ignorés :
-        # on calcule donc l'écart-type uniquement sur les mois négatifs.
-        if i + 19 <= len(retours):
-            fenetre = retours.iloc[i : i + 19]
+        if i + n_obs_downside <= len(retours):
+            fenetre = retours.iloc[i : i + n_obs_downside]
 
             for secteur in SECTEURS:
                 negatifs = fenetre[secteur][fenetre[secteur] < 0].dropna()
@@ -704,8 +689,6 @@ def calculer_volatilite(wb):
                         negatifs.std(ddof=1) * math.sqrt(12)
                     )
 
-    # Les deux sous-variables utilisent la même logique historique :
-    # faible volatilité = meilleur signal => ordre RANK = 0.
     score_vol = calculer_variable_historique(
         vol_6m,
         ordre_rank=0,
@@ -805,7 +788,7 @@ def choisir_top_worst(top_count, bottom_count, rang_global):
     return top, worst
 
 
-def calculer_resultats_finaux(piliers, cycle_macro):
+def calculer_resultats_finaux(piliers, contexte_macro):
     """Calcule l'historique complet du modèle final Europe."""
     piliers = aligner_piliers(piliers)
     rangs = calculer_rangs_piliers(piliers)
@@ -813,12 +796,13 @@ def calculer_resultats_finaux(piliers, cycle_macro):
     lignes = []
 
     for date in piliers["Leverage"].index:
-        # Le modèle final a besoin du régime macro.
-        if date not in cycle_macro.index:
+        # Le modèle final a besoin du macro externe et du rate overlay.
+        if date not in contexte_macro.index:
             continue
 
-        regime = cycle_macro.at[date, "cycle"]
-        signal_taux = cycle_macro.at[date, "signal_taux"]
+        regime = contexte_macro.at[date, "cycle"]
+        macro_score = contexte_macro.at[date, "macro_score"]
+        signal_taux = contexte_macro.at[date, "signal_taux"]
 
         if regime not in POIDS_REGIME:
             continue
@@ -834,17 +818,18 @@ def calculer_resultats_finaux(piliers, cycle_macro):
         rang_tilt = rang_secteurs(score_tilt)
 
         # "+ macro" dans Excel :
-        # le 7e pilier est le rang issu du modèle Tilt.
+        # le rang Tilt devient une composante supplémentaire.
+        n_composantes_macro = len(POIDS_BASE) + 1
         score_macro = pd.Series(0.0, index=SECTEURS)
         valide_macro = pd.Series(True, index=SECTEURS)
 
         for pilier in POIDS_BASE:
             serie = rangs[pilier].loc[date]
             valide_macro &= serie.notna()
-            score_macro += serie.fillna(0) / 7
+            score_macro += serie.fillna(0) / n_composantes_macro
 
         valide_macro &= rang_tilt.notna()
-        score_macro += rang_tilt.fillna(0) / 7
+        score_macro += rang_tilt.fillna(0) / n_composantes_macro
         score_macro[~valide_macro] = np.nan
 
         rang_global = rang_secteurs(score_macro)
@@ -853,26 +838,30 @@ def calculer_resultats_finaux(piliers, cycle_macro):
         top_count = pd.Series(0, index=SECTEURS, dtype=int)
         bottom_count = pd.Series(0, index=SECTEURS, dtype=int)
 
-        for pilier in ["Leverage", "Margin", "Value", "Momentum", "Growth", "Volatility"]:
+        for pilier in POIDS_BASE:
             r = rangs[pilier].loc[date]
             top_count += (r > N_SECTEURS - N_TOP).fillna(False).astype(int)
             bottom_count += (r <= N_WORST).fillna(False).astype(int)
 
-        # Le "macro pillar" compte deux fois dans Excel.
-        top_count += 2 * (rang_tilt > N_SECTEURS - N_TOP).fillna(False).astype(int)
-        bottom_count += 2 * (rang_tilt <= N_WORST).fillna(False).astype(int)
+        # Le vote macro utilise le multiplicateur défini dans la configuration.
+        top_count += POIDS_VOTE_MACRO * (
+            rang_tilt > N_SECTEURS - N_TOP
+        ).fillna(False).astype(int)
+        bottom_count += POIDS_VOTE_MACRO * (
+            rang_tilt <= N_WORST
+        ).fillna(False).astype(int)
 
-        # Si le signal de taux est On, Value et Leverage comptent une fois de plus.
+        # Le rate overlay renforce les piliers définis dans la configuration.
         if signal_taux == "On":
-            for pilier in ["Leverage", "Value"]:
+            for pilier in PILIERS_RATE_OVERLAY:
                 r = rangs[pilier].loc[date]
                 top_count += (r > N_SECTEURS - N_TOP).fillna(False).astype(int)
                 bottom_count += (r <= N_WORST).fillna(False).astype(int)
 
-        # Exception explicite du fichier Excel :
-        # les formules Top et Worst de Travel & leisure sont multipliées par 0.
-        top_count["Travel & leisure"] = 0
-        bottom_count["Travel & leisure"] = 0
+        # Certains secteurs sont explicitement exclus du vote qualitatif.
+        for secteur_exclu in SECTEURS_SANS_VOTE_TOP_WORST:
+            top_count[secteur_exclu] = 0
+            bottom_count[secteur_exclu] = 0
 
         top, worst = choisir_top_worst(top_count, bottom_count, rang_global)
 
@@ -888,6 +877,7 @@ def calculer_resultats_finaux(piliers, cycle_macro):
                 "date": date,
                 "secteur": secteur,
                 "cycle": regime,
+                "macro_score": macro_score,
                 "signal_taux": signal_taux,
                 "score_base": score_base[secteur],
                 "rang_base": rang_base[secteur],
@@ -906,7 +896,7 @@ def calculer_resultats_finaux(piliers, cycle_macro):
 
             lignes.append(ligne)
 
-    return pd.DataFrame(lignes), piliers, rangs, cycle_macro
+    return pd.DataFrame(lignes), piliers, rangs, contexte_macro
 
 
 # ---------------------------------------------------------------------------
@@ -915,35 +905,58 @@ def calculer_resultats_finaux(piliers, cycle_macro):
 
 def calculer_modele(
     fichier_excel=None,
+    fichier_macro=None,
 ):
     """Point d'entrée principal réutilisé par les scripts de plot et backtest."""
     if fichier_excel is None:
         fichier_excel = FICHIER_EXCEL_PAR_DEFAUT
 
+    if fichier_macro is None:
+        fichier_macro = FICHIER_MACRO_PAR_DEFAUT
+
     if fichier_excel is None:
         raise ValueError(
-            "Aucun fichier Excel configuré. "
-            "Utiliser --excel, SCORE_SECTORIEL_EU_XLSM ou local_config.py."
+            "Aucun fichier sectoriel configuré. "
+            "Utiliser --excel, SCORE_SECTORIEL_EU_XLSM "
+            "ou local_config_private.py."
+        )
+
+    if fichier_macro is None:
+        raise ValueError(
+            "Aucun fichier macro configuré. "
+            "Utiliser --macro-excel, SCORE_MACRO_EU_XLSX "
+            "ou local_config_private.py."
         )
 
     fichier_excel = Path(fichier_excel)
+    fichier_macro = Path(fichier_macro)
 
     if not fichier_excel.exists():
-        raise FileNotFoundError(f"Fichier introuvable : {fichier_excel}")
+        raise FileNotFoundError(f"Fichier sectoriel introuvable : {fichier_excel}")
 
-    # data_only=True : on lit les valeurs mises en cache après le refresh FactSet.
-    wb = load_workbook(
+    if not fichier_macro.exists():
+        raise FileNotFoundError(f"Fichier macro introuvable : {fichier_macro}")
+
+    # data_only=True : lecture des valeurs mises en cache après refresh Excel.
+    wb_eu = load_workbook(
         fichier_excel,
         data_only=True,
         read_only=False,
         keep_vba=False,
     )
 
-    try:
-        piliers, sous_scores = calculer_piliers_historiques(wb)
+    wb_macro = load_workbook(
+        fichier_macro,
+        data_only=True,
+        read_only=False,
+        keep_vba=False,
+    )
 
-        momentum, sous_momentum = calculer_momentum(wb)
-        volatility, sous_vol, retours = calculer_volatilite(wb)
+    try:
+        piliers, sous_scores = calculer_piliers_historiques(wb_eu)
+
+        momentum, sous_momentum = calculer_momentum(wb_eu)
+        volatility, sous_vol, retours = calculer_volatilite(wb_eu)
 
         piliers["Momentum"] = momentum
         piliers["Volatility"] = volatility
@@ -951,11 +964,11 @@ def calculer_modele(
         sous_scores.update(sous_momentum)
         sous_scores.update(sous_vol)
 
-        cycle_macro = lire_cycle_macro(wb["Cycle macro"])
+        contexte_macro = construire_contexte_macro(wb_eu, wb_macro)
 
-        historique, piliers, rangs, cycle_macro = calculer_resultats_finaux(
+        historique, piliers, rangs, contexte_macro = calculer_resultats_finaux(
             piliers,
-            cycle_macro,
+            contexte_macro,
         )
 
         return {
@@ -964,10 +977,11 @@ def calculer_modele(
             "rangs": rangs,
             "sous_scores": sous_scores,
             "retours": retours,
-            "cycle_macro": cycle_macro,
+            "contexte_macro": contexte_macro,
         }
     finally:
-        wb.close()
+        wb_eu.close()
+        wb_macro.close()
 
 
 def sauvegarder_sorties(resultats, dossier_sortie):
@@ -1040,6 +1054,9 @@ def sauvegarder_sorties(resultats, dossier_sortie):
         "score_momentum",
         "score_growth",
         "score_volatility",
+        "macro_score",
+        "cycle",
+        "signal_taux",
         "rang_global",
         "recommendation",
     ]
@@ -1064,6 +1081,7 @@ def afficher_latest(resultats):
         "top_count",
         "bottom_count",
         "recommendation",
+        "macro_score",
         "cycle",
         "signal_taux",
     ]
@@ -1098,13 +1116,21 @@ def main():
         help="Chemin du fichier Score_Sectoriel_EU.xlsm",
     )
     parser.add_argument(
+        "--macro-excel",
+        default=FICHIER_MACRO_PAR_DEFAUT,
+        help="Chemin du fichier macro Europe",
+    )
+    parser.add_argument(
         "--output",
         default=str(DOSSIER_SORTIE_PAR_DEFAUT),
         help="Dossier de sortie",
     )
     args = parser.parse_args()
 
-    resultats = calculer_modele(args.excel)
+    resultats = calculer_modele(
+        args.excel,
+        fichier_macro=args.macro_excel,
+    )
     sauvegarder_sorties(resultats, args.output)
     afficher_latest(resultats)
 

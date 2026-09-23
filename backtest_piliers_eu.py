@@ -22,45 +22,17 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from local_config import VARIABLES_BACKTEST
 from model_secto_eu import (
     FICHIER_EXCEL_PAR_DEFAUT,
+    FICHIER_MACRO_PAR_DEFAUT,
     calculer_modele,
 )
 
 
 DOSSIER_SORTIE = Path(__file__).resolve().parent / "output" / "backtests"
 
-VARIABLES_PAR_PILIER = {
-    "Leverage": [
-        "net_debt_ebitda",
-        "fcf_total_debt",
-        "debt_equity",
-    ],
-    "Margin": [
-        "operating_margin",
-        "net_margin",
-        "ebitda_margin",
-    ],
-    "Value": [
-        "price_fcf",
-        "ev_ebitda",
-        "price_sales",
-    ],
-    "Momentum": [
-        "momentum_6m_1m",
-        "momentum_12m_1m",
-        "earnings_revision_ratio",
-    ],
-    "Growth": [
-        "eps_growth",
-        "sales_growth",
-        "ebitda_growth",
-    ],
-    "Volatility": [
-        "volatility_6m",
-        "downside_volatility_18m",
-    ],
-}
+VARIABLES_PAR_PILIER = VARIABLES_BACKTEST
 
 
 def preparer_retour_futur(retours):
@@ -203,6 +175,7 @@ def main():
         choices=list(VARIABLES_PAR_PILIER),
     )
     parser.add_argument("--excel", default=FICHIER_EXCEL_PAR_DEFAUT)
+    parser.add_argument("--macro-excel", default=FICHIER_MACRO_PAR_DEFAUT)
     parser.add_argument("--top", type=int, default=3)
     parser.add_argument("--start", default=None)
     parser.add_argument("--end", default=None)
@@ -213,7 +186,10 @@ def main():
     dossier = Path(args.output)
     dossier.mkdir(parents=True, exist_ok=True)
 
-    resultats = calculer_modele(args.excel)
+    resultats = calculer_modele(
+        args.excel,
+        fichier_macro=args.macro_excel,
+    )
     retours_futurs = preparer_retour_futur(resultats["retours"])
 
     variables = VARIABLES_PAR_PILIER[args.pillar].copy()
