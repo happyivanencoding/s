@@ -76,9 +76,11 @@ N_OBSERVATIONS_RANK = FENETRE_HISTORIQUE + 1
 N_TOP = 3
 N_WORST = 3
 
-# Paramètres exacts du signal de taux dans "Cycle macro".
-ALPHA_EWMA_TAUX = 0.715
-SEUIL_SIGNAL_TAUX = 0.85
+# Deux sorties macro nécessaires dans la feuille "Cycle macro".
+# M = régime macro : C / R / E / SD
+# V = signal de taux : On / Off
+COLONNE_CYCLE_MACRO = "M"
+COLONNE_SIGNAL_TAUX = "V"
 
 # Poids du modèle de base Europe : 6 piliers équipondérés.
 POIDS_BASE = {
@@ -340,35 +342,6 @@ def rang_secteurs(ligne):
     return result
 
 
-def percentrank_inc(valeurs, x):
-    """
-    Reproduction simple de PERCENTRANK.INC d'Excel.
-    Utilisé pour le signal de taux.
-    """
-    valeurs = pd.Series(valeurs, dtype=float).dropna().sort_values().to_numpy()
-
-    if len(valeurs) == 0 or pd.isna(x):
-        return np.nan
-    if len(valeurs) == 1:
-        return 1.0
-    if x <= valeurs[0]:
-        return 0.0
-    if x >= valeurs[-1]:
-        return 1.0
-
-    # Si x existe exactement dans l'échantillon.
-    positions = np.where(np.isclose(valeurs, x, rtol=0, atol=1e-12))[0]
-    if len(positions):
-        return positions[0] / (len(valeurs) - 1)
-
-    # Sinon interpolation linéaire entre les deux valeurs voisines.
-    droite = np.searchsorted(valeurs, x, side="right")
-    gauche = droite - 1
-    x0, x1 = valeurs[gauche], valeurs[droite]
-    fraction = (x - x0) / (x1 - x0)
-    return (gauche + fraction) / (len(valeurs) - 1)
-
-
 # ---------------------------------------------------------------------------
 # 3. LECTURE DES DONNÉES EXCEL
 # ---------------------------------------------------------------------------
@@ -433,27 +406,33 @@ def lire_bloc_retours(ws):
 
 def lire_cycle_macro(ws):
     """
-    Lit le régime macro (colonne M) et le taux US 10Y (colonne R).
+    Lit directement les deux sorties macro déjà calculées dans Excel.
 
-    Le régime macro est déjà présent comme donnée dans le fichier source.
-    La partie Python recalcule en revanche le signal de taux.
+    Colonnes nécessaires dans la feuille "Cycle macro" :
+    - M : régime macro = C / R / E / SD
+    - V : signal de taux = On / Off
+
+    Python ne recalcule ni le régime macro ni le signal de taux.
     """
     ligne = 4
     lignes = []
+
+    col_cycle = column_index_from_string(COLONNE_CYCLE_MACRO)
+    col_taux = column_index_from_string(COLONNE_SIGNAL_TAUX)
 
     while True:
         date_brute = ws.cell(ligne, 1).value
         if not est_date_excel(date_brute):
             break
 
-        cycle = ws.cell(ligne, column_index_from_string("M")).value
-        taux_10y = ws.cell(ligne, column_index_from_string("R")).value
+        cycle = ws.cell(ligne, col_cycle).value
+        signal_taux = ws.cell(ligne, col_taux).value
 
         lignes.append(
             {
                 "date": convertir_date_excel(date_brute),
                 "cycle": cycle if cycle in POIDS_REGIME else None,
-                "us10y": float(taux_10y) if est_nombre(taux_10y) else np.nan,
+                "signal_taux": signal_taux if signal_taux in {"On", "Off"} else None,
             }
         )
         ligne += 1
@@ -751,121 +730,7 @@ def calculer_volatilite(wb):
 
 
 # ---------------------------------------------------------------------------
-# 8. SIGNAL DE TAUX ET RÉGIME MACRO
-# ---------------------------------------------------------------------------
-
-def calculer_signal_taux(cycle_macro):
-    """Recalcule exactement le signal US 10Y / EWMA du fichier Excel."""
-    df = cycle_macro.copy().sort_index()
-    df["ewma_us10y"] = np.nan
-    df["diff_ewma"] = np.nan
-    df["percentile_taux"] = np.nan
-    df["signal_taux"] = "Off"
-
-    for i in range(len(df)):
-        taux = df.iloc[i]["us10y"]
-        if pd.isna(taux):
-            continue
-
-        if i == 0 or pd.isna(df.iloc[i - 1]["ewma_us10y"]):
-            ewma = taux
-        else:
-            ewma_prec = df.iloc[i - 1]["ewma_us10y"]
-            ewma = ALPHA_EWMA_TAUX * ewma_prec + (1 - ALPHA_EWMA_TAUX) * taux
-
-        df.iloc[i, df.columns.get_loc("ewma_us10y")] = ewma
-        diff = taux - ewma
-        df.iloc[i, df.columns.get_loc("diff_ewma")] = diff
-
-        historique = df["diff_ewma"].iloc[: i + 1]
-        percentile = percentrank_inc(historique, diff)
-        df.iloc[i, df.columns.get_loc("percentile_taux")] = percentile
-
-        if percentile > SEUIL_SIGNAL_TAUX:
-            df.iloc[i, df.columns.get_loc("signal_taux")] = "On"
-
-    return df
-
-
-def lire_macro_csv(fichier_csv):
-    """
-    Lit un fichier macro optionnel très simple.
-
-    Deux formats sont acceptés :
-
-    1. Régime déjà calculé :
-       date,cycle
-       2026-08-31,E
-
-    2. Signal macro brut :
-       date,macro_signal
-       2026-08-31,0.42
-
-       Dans ce cas le cycle est déduit du niveau et de la direction :
-       - négatif + baisse  -> C
-       - négatif + hausse  -> R
-       - positif + hausse  -> E
-       - positif + baisse  -> SD
-    """
-    df = pd.read_csv(fichier_csv)
-    df["date"] = pd.to_datetime(df["date"])
-    df = df.sort_values("date").set_index("date")
-
-    if "cycle" in df.columns:
-        df["cycle"] = df["cycle"].where(df["cycle"].isin(POIDS_REGIME))
-        return df[["cycle"]]
-
-    if "macro_signal" not in df.columns:
-        raise ValueError(
-            "Le fichier macro doit contenir 'cycle' ou 'macro_signal'."
-        )
-
-    df["variation"] = df["macro_signal"].diff()
-    df["cycle"] = None
-
-    for date, ligne in df.iterrows():
-        signal = ligne["macro_signal"]
-        variation = ligne["variation"]
-
-        if pd.isna(signal) or pd.isna(variation):
-            continue
-
-        if signal < 0 and variation < 0:
-            cycle = "C"
-        elif signal < 0 and variation >= 0:
-            cycle = "R"
-        elif signal >= 0 and variation >= 0:
-            cycle = "E"
-        else:
-            cycle = "SD"
-
-        df.at[date, "cycle"] = cycle
-
-    return df[["cycle"]]
-
-
-def completer_cycle_macro(cycle_macro, fichier_macro=None):
-    """Complète ou remplace le régime macro avec un CSV optionnel."""
-    if fichier_macro is None:
-        return cycle_macro
-
-    macro_externe = lire_macro_csv(fichier_macro)
-    resultat = cycle_macro.copy()
-
-    # On ajoute les nouvelles dates si nécessaire.
-    index_total = resultat.index.union(macro_externe.index).sort_values()
-    resultat = resultat.reindex(index_total)
-
-    for date in macro_externe.index:
-        cycle = macro_externe.at[date, "cycle"]
-        if cycle in POIDS_REGIME:
-            resultat.at[date, "cycle"] = cycle
-
-    return resultat
-
-
-# ---------------------------------------------------------------------------
-# 9. AGRÉGATION DES PILIERS ET RECOMMANDATIONS
+# 8. AGRÉGATION DES PILIERS ET RECOMMANDATIONS
 # ---------------------------------------------------------------------------
 
 def aligner_piliers(piliers):
@@ -945,8 +810,6 @@ def calculer_resultats_finaux(piliers, cycle_macro):
     piliers = aligner_piliers(piliers)
     rangs = calculer_rangs_piliers(piliers)
 
-    cycle_macro = calculer_signal_taux(cycle_macro)
-
     lignes = []
 
     for date in piliers["Leverage"].index:
@@ -958,6 +821,8 @@ def calculer_resultats_finaux(piliers, cycle_macro):
         signal_taux = cycle_macro.at[date, "signal_taux"]
 
         if regime not in POIDS_REGIME:
+            continue
+        if signal_taux not in {"On", "Off"}:
             continue
 
         # Score 5F de base : six piliers équipondérés.
@@ -1045,12 +910,11 @@ def calculer_resultats_finaux(piliers, cycle_macro):
 
 
 # ---------------------------------------------------------------------------
-# 10. FONCTION PRINCIPALE
+# 9. FONCTION PRINCIPALE
 # ---------------------------------------------------------------------------
 
 def calculer_modele(
     fichier_excel=None,
-    fichier_macro=None,
 ):
     """Point d'entrée principal réutilisé par les scripts de plot et backtest."""
     if fichier_excel is None:
@@ -1088,7 +952,6 @@ def calculer_modele(
         sous_scores.update(sous_vol)
 
         cycle_macro = lire_cycle_macro(wb["Cycle macro"])
-        cycle_macro = completer_cycle_macro(cycle_macro, fichier_macro)
 
         historique, piliers, rangs, cycle_macro = calculer_resultats_finaux(
             piliers,
@@ -1239,18 +1102,9 @@ def main():
         default=str(DOSSIER_SORTIE_PAR_DEFAUT),
         help="Dossier de sortie",
     )
-    parser.add_argument(
-        "--macro-csv",
-        default=None,
-        help="CSV optionnel avec les colonnes date,cycle ou date,macro_signal",
-    )
-
     args = parser.parse_args()
 
-    resultats = calculer_modele(
-        args.excel,
-        fichier_macro=args.macro_csv,
-    )
+    resultats = calculer_modele(args.excel)
     sauvegarder_sorties(resultats, args.output)
     afficher_latest(resultats)
 

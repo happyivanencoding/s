@@ -163,20 +163,12 @@ def main():
         choices=["Leverage", "Margin", "Value", "Momentum", "Growth", "Volatility"],
     )
     parser.add_argument("--output", default=str(DOSSIER_SORTIE))
-    parser.add_argument(
-        "--macro-csv",
-        default=None,
-        help="CSV optionnel avec date,cycle ou date,macro_signal",
-    )
     args = parser.parse_args()
 
     dossier = Path(args.output)
     dossier.mkdir(parents=True, exist_ok=True)
 
-    resultats = calculer_modele(
-        args.excel,
-        fichier_macro=args.macro_csv,
-    )
+    resultats = calculer_modele(args.excel)
     date = trouver_date(resultats["piliers"], args.date)
 
     plot_heatmap_piliers(
