@@ -1,0 +1,19 @@
+# Configuration locale
+local_config.py
+
+# Fichiers demandés uniquement en local
+README.md
+output/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Fichiers temporaires de recherche / validation
+_*.py
+
+# Environnements / IDE
+.venv/
+venv/
+.vscode/
+.idea/
