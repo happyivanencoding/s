@@ -1,12 +1,17 @@
 # -*- coding: utf-8 -*-
-"""Backtests communs aux modèles sectoriels."""
+"""Backtests des modèles sectoriels EU et US."""
 
 from pathlib import Path
+import argparse
 import math
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+
+from local_config import MODELE_EU, MODELE_US
+import model_secto_eu
+import model_secto_us
 
 
 def preparer_retour_futur(retours):
@@ -310,3 +315,107 @@ def executer_backtests(
         )
 
     return resume, backtests
+
+def choisir_marche(nom_marche):
+    """Retourne la configuration et le module du marché demandé."""
+    if nom_marche == "EU":
+        return MODELE_EU, model_secto_eu
+
+    return MODELE_US, model_secto_us
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Backtest des sous-variables sectorielles EU et US"
+    )
+    parser.add_argument(
+        "--market",
+        required=True,
+        choices=["EU", "US"],
+    )
+    parser.add_argument(
+        "--pillar",
+        required=True,
+    )
+    parser.add_argument(
+        "--excel",
+        default=None,
+    )
+    parser.add_argument(
+        "--macro-excel",
+        default=None,
+    )
+    parser.add_argument(
+        "--top",
+        type=int,
+        default=3,
+    )
+    parser.add_argument(
+        "--start",
+        default=None,
+    )
+    parser.add_argument(
+        "--end",
+        default=None,
+    )
+    parser.add_argument(
+        "--plot",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--output",
+        default=str(
+            Path(__file__).resolve().parent
+            / "output"
+            / "backtests"
+        ),
+    )
+    args = parser.parse_args()
+
+    config, modele = choisir_marche(args.market)
+
+    if args.pillar not in config["variables_backtest"]:
+        choix = ", ".join(config["variables_backtest"])
+        raise ValueError(
+            f"Pilier inconnu : {args.pillar}. Choix : {choix}"
+        )
+
+    resultats = modele.calculer_modele(
+        args.excel,
+        fichier_macro=args.macro_excel,
+    )
+
+    resume, _ = executer_backtests(
+        resultats,
+        config,
+        args.pillar,
+        args.output,
+        top_n=args.top,
+        start=args.start,
+        end=args.end,
+        avec_plot=args.plot,
+    )
+
+    colonnes = [
+        "variable",
+        "n_months",
+        "ann_return_top",
+        "ann_return_ls",
+        "sharpe_ls",
+        "win_rate_ls",
+        "max_drawdown_ls",
+    ]
+
+    print("\nRésumé :")
+    print(
+        resume[colonnes].to_string(
+            index=False
+        )
+    )
+    print(
+        f"\nRésultats sauvegardés dans : {args.output}"
+    )
+
+
+if __name__ == "__main__":
+    main()

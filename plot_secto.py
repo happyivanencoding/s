@@ -1,11 +1,16 @@
 # -*- coding: utf-8 -*-
-"""Visualisations communes aux modèles sectoriels."""
+"""Visualisations des modèles sectoriels EU et US."""
 
 from pathlib import Path
+import argparse
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+
+from local_config import MODELE_EU, MODELE_US
+import model_secto_eu
+import model_secto_us
 
 
 def trouver_date(piliers, date_demandee=None):
@@ -352,3 +357,80 @@ def generer_plots(
         )
 
     return date, date_finale
+
+def choisir_marche(nom_marche):
+    """Retourne la configuration et le module du marché demandé."""
+    if nom_marche == "EU":
+        return MODELE_EU, model_secto_eu
+
+    return MODELE_US, model_secto_us
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Plots des modèles sectoriels EU et US"
+    )
+    parser.add_argument(
+        "--market",
+        required=True,
+        choices=["EU", "US"],
+    )
+    parser.add_argument(
+        "--excel",
+        default=None,
+    )
+    parser.add_argument(
+        "--macro-excel",
+        default=None,
+    )
+    parser.add_argument(
+        "--date",
+        default=None,
+    )
+    parser.add_argument(
+        "--pillar",
+        default=None,
+    )
+    parser.add_argument(
+        "--output",
+        default=str(
+            Path(__file__).resolve().parent / "output"
+        ),
+    )
+    args = parser.parse_args()
+
+    config, modele = choisir_marche(args.market)
+
+    if (
+        args.pillar
+        and args.pillar not in config["variables_backtest"]
+    ):
+        choix = ", ".join(config["variables_backtest"])
+        raise ValueError(
+            f"Pilier inconnu : {args.pillar}. Choix : {choix}"
+        )
+
+    resultats = modele.calculer_modele(
+        args.excel,
+        fichier_macro=args.macro_excel,
+    )
+
+    date, date_finale = generer_plots(
+        resultats,
+        config,
+        args.output,
+        date_demandee=args.date,
+        pilier=args.pillar,
+    )
+
+    print(f"Plots sauvegardés dans : {args.output}")
+    print(f"Date des piliers : {date.date()}")
+
+    if date_finale is not None:
+        print(
+            f"Date du rang final : {date_finale.date()}"
+        )
+
+
+if __name__ == "__main__":
+    main()
