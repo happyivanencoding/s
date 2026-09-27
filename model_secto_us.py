@@ -1,19 +1,19 @@
 # -*- coding: utf-8 -*-
-"""Calcul du modèle sectoriel Europe."""
+"""Calcul du modèle sectoriel US."""
 
 from pathlib import Path
 
 from data_io import (
-    FICHIER_EXCEL_EU_PAR_DEFAUT,
+    FICHIER_EXCEL_US_PAR_DEFAUT,
     FICHIER_MACRO_PAR_DEFAUT,
     ouvrir_workbooks,
 )
-from local_config import MODELE_EU
+from local_config import MODELE_US
 import sector_core as core
 
 
-CONFIG = MODELE_EU
-FICHIER_EXCEL_PAR_DEFAUT = FICHIER_EXCEL_EU_PAR_DEFAUT
+CONFIG = MODELE_US
+FICHIER_EXCEL_PAR_DEFAUT = FICHIER_EXCEL_US_PAR_DEFAUT
 DOSSIER_SORTIE_PAR_DEFAUT = (
     Path(__file__).resolve().parent / "output"
 )

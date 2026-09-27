@@ -1,7 +1,5 @@
 # -*- coding: utf-8 -*-
-"""
-Entrées de données du modèle sectoriel Europe.
-"""
+"""Entrées de données des modèles sectoriels."""
 
 from pathlib import Path
 import os
@@ -13,26 +11,21 @@ from openpyxl.utils import column_index_from_string
 
 from local_config import (
     CONFIG_HISTORIQUE,
-    CONFIG_MACRO_EU,
-    CONFIG_SIGNAL_TAUX,
-    CONFIG_VOLATILITE,
-    FICHIER_EXCEL_EU,
     FICHIER_EXCEL_MACRO,
-    POIDS_REGIME,
-    SECTEURS,
+    MODELE_EU,
+    MODELE_US,
 )
 
 try:
     from local_config_private import (
         FICHIER_EXCEL_EU as FICHIER_EXCEL_EU_PRIVE,
+        FICHIER_EXCEL_US as FICHIER_EXCEL_US_PRIVE,
         FICHIER_EXCEL_MACRO as FICHIER_EXCEL_MACRO_PRIVE,
     )
 except ImportError:
     FICHIER_EXCEL_EU_PRIVE = ""
+    FICHIER_EXCEL_US_PRIVE = ""
     FICHIER_EXCEL_MACRO_PRIVE = ""
-
-
-N_SECTEURS = len(SECTEURS)
 
 
 def choisir_chemin(configuration, surcharge, variable_env):
@@ -41,21 +34,27 @@ def choisir_chemin(configuration, surcharge, variable_env):
 
     if chemin_env:
         return chemin_env
-
     if surcharge:
         return surcharge
-
     if configuration:
         return configuration
 
     return None
 
 
-FICHIER_EXCEL_PAR_DEFAUT = choisir_chemin(
-    FICHIER_EXCEL_EU,
+FICHIER_EXCEL_EU_PAR_DEFAUT = choisir_chemin(
+    MODELE_EU["fichier_excel"],
     FICHIER_EXCEL_EU_PRIVE,
-    "SCORE_SECTORIEL_EU_XLSM",
+    MODELE_EU["env_excel"],
 )
+
+FICHIER_EXCEL_US_PAR_DEFAUT = choisir_chemin(
+    MODELE_US["fichier_excel"],
+    FICHIER_EXCEL_US_PRIVE,
+    MODELE_US["env_excel"],
+)
+
+FICHIER_EXCEL_PAR_DEFAUT = FICHIER_EXCEL_EU_PAR_DEFAUT
 
 FICHIER_MACRO_PAR_DEFAUT = choisir_chemin(
     FICHIER_EXCEL_MACRO,
@@ -64,14 +63,21 @@ FICHIER_MACRO_PAR_DEFAUT = choisir_chemin(
 )
 
 
-def ouvrir_workbooks(fichier_excel=None, fichier_macro=None):
-    """Ouvre les deux fichiers Excel nécessaires au modèle."""
-    fichier_excel = fichier_excel or FICHIER_EXCEL_PAR_DEFAUT
+def ouvrir_workbooks(
+    fichier_excel=None,
+    fichier_macro=None,
+    fichier_excel_defaut=None,
+):
+    """Ouvre le fichier sectoriel et le fichier macro."""
+    fichier_excel = (
+        fichier_excel
+        or fichier_excel_defaut
+        or FICHIER_EXCEL_EU_PAR_DEFAUT
+    )
     fichier_macro = fichier_macro or FICHIER_MACRO_PAR_DEFAUT
 
     if not fichier_excel:
         raise ValueError("Aucun fichier sectoriel configuré.")
-
     if not fichier_macro:
         raise ValueError("Aucun fichier macro configuré.")
 
@@ -82,19 +88,17 @@ def ouvrir_workbooks(fichier_excel=None, fichier_macro=None):
         raise FileNotFoundError(
             f"Fichier sectoriel introuvable : {fichier_excel}"
         )
-
     if not fichier_macro.exists():
         raise FileNotFoundError(
             f"Fichier macro introuvable : {fichier_macro}"
         )
 
-    wb_eu = load_workbook(
+    wb_secteur = load_workbook(
         fichier_excel,
         data_only=True,
         read_only=False,
         keep_vba=False,
     )
-
     wb_macro = load_workbook(
         fichier_macro,
         data_only=True,
@@ -102,12 +106,15 @@ def ouvrir_workbooks(fichier_excel=None, fichier_macro=None):
         keep_vba=False,
     )
 
-    return wb_eu, wb_macro
+    return wb_secteur, wb_macro
 
 
 def est_nombre(x):
     """Indique si une cellule contient une valeur numérique exploitable."""
-    return isinstance(x, (int, float, np.integer, np.floating)) and not pd.isna(x)
+    return isinstance(
+        x,
+        (int, float, np.integer, np.floating),
+    ) and not pd.isna(x)
 
 
 def convertir_date_excel(x):
@@ -119,7 +126,10 @@ def convertir_date_excel(x):
         return pd.Timestamp(x)
 
     if est_nombre(x):
-        return pd.Timestamp("1899-12-30") + pd.to_timedelta(float(x), unit="D")
+        return pd.Timestamp("1899-12-30") + pd.to_timedelta(
+            float(x),
+            unit="D",
+        )
 
     return pd.NaT
 
@@ -145,7 +155,9 @@ def normaliser_index_mensuel(df):
     resultat.index = pd.DatetimeIndex(
         [normaliser_date_mensuelle(x) for x in resultat.index]
     )
-    resultat = resultat[~resultat.index.duplicated(keep="first")]
+    resultat = resultat[
+        ~resultat.index.duplicated(keep="first")
+    ]
     return resultat.sort_index(ascending=False)
 
 
@@ -171,10 +183,15 @@ def figer_historique(df, dates_source, cle):
 
     dates_source = pd.Series(
         [convertir_date_excel(x) for x in dates_source],
-        index=[normaliser_date_mensuelle(x) for x in dates_source],
+        index=[
+            normaliser_date_mensuelle(x)
+            for x in dates_source
+        ],
         name="date_source",
     )
-    dates_source = dates_source[~dates_source.index.duplicated(keep="first")]
+    dates_source = dates_source[
+        ~dates_source.index.duplicated(keep="first")
+    ]
 
     courant = resultat.copy()
     courant.insert(
@@ -187,7 +204,10 @@ def figer_historique(df, dates_source, cle):
     if not CONFIG_HISTORIQUE.get("actif", True):
         return resultat
 
-    dossier = Path(__file__).resolve().parent / CONFIG_HISTORIQUE["dossier"]
+    dossier = (
+        Path(__file__).resolve().parent
+        / CONFIG_HISTORIQUE["dossier"]
+    )
     dossier.mkdir(parents=True, exist_ok=True)
 
     fichier = dossier / nom_fichier_historique(cle)
@@ -199,7 +219,10 @@ def figer_historique(df, dates_source, cle):
             parse_dates=["date", "date_source"],
         )
         historique.index = pd.DatetimeIndex(
-            [normaliser_date_mensuelle(x) for x in historique.index]
+            [
+                normaliser_date_mensuelle(x)
+                for x in historique.index
+            ]
         )
         historique = historique[
             ~historique.index.duplicated(keep="first")
@@ -219,7 +242,10 @@ def figer_historique(df, dates_source, cle):
 
     combine = combine.sort_index(ascending=False)
     combine.index.name = "date"
-    combine.to_csv(fichier, date_format="%Y-%m-%d")
+    combine.to_csv(
+        fichier,
+        date_format="%Y-%m-%d",
+    )
 
     colonnes = list(df.columns)
 
@@ -230,8 +256,17 @@ def figer_historique(df, dates_source, cle):
     return combine[colonnes].copy()
 
 
-def lire_dates_et_bloc(ws, colonne_depart, ligne_depart=8, colonne_date="A"):
-    """Lit un bloc sectoriel de 13 colonnes puis fige son historique mensuel."""
+def lire_dates_et_bloc(
+    ws,
+    colonne_depart,
+    secteurs=None,
+    cle_prefixe="",
+    ligne_depart=8,
+    colonne_date="A",
+):
+    """Lit un bloc sectoriel puis fige son historique mensuel."""
+    secteurs = secteurs or MODELE_EU["secteurs"]
+
     col_start = column_index_from_string(colonne_depart)
     col_date = column_index_from_string(colonne_date)
 
@@ -248,10 +283,15 @@ def lire_dates_et_bloc(ws, colonne_depart, ligne_depart=8, colonne_date="A"):
 
         valeurs = []
 
-        for j in range(N_SECTEURS):
-            valeur = ws.cell(ligne, col_start + j).value
+        for j in range(len(secteurs)):
+            valeur = ws.cell(
+                ligne,
+                col_start + j,
+            ).value
             valeurs.append(
-                float(valeur) if est_nombre(valeur) else np.nan
+                float(valeur)
+                if est_nombre(valeur)
+                else np.nan
             )
 
         date_source = convertir_date_excel(date_brute)
@@ -263,37 +303,59 @@ def lire_dates_et_bloc(ws, colonne_depart, ligne_depart=8, colonne_date="A"):
     df = pd.DataFrame(
         donnees,
         index=dates,
-        columns=SECTEURS,
+        columns=secteurs,
     )
 
-    cle = f"{ws.title}_{colonne_depart}"
-    return figer_historique(df, dates_source, cle)
+    cle = f"{cle_prefixe}{ws.title}_{colonne_depart}"
+    return figer_historique(
+        df,
+        dates_source,
+        cle,
+    )
 
 
-def lire_bloc_retours(ws):
-    """Lit les rendements sectoriels utilisés pour le pilier Volatility."""
-    cfg = CONFIG_VOLATILITE
+def lire_bloc_retours(
+    ws,
+    config_volatilite=None,
+    secteurs=None,
+    cle_prefixe="",
+):
+    """Lit les rendements sectoriels utilisés par Volatility."""
+    cfg = config_volatilite or MODELE_EU["volatilite"]
+    secteurs = secteurs or MODELE_EU["secteurs"]
 
     ligne = cfg["ligne_debut_retours"]
-    col_date = column_index_from_string(cfg["colonne_date"])
-    col_start = column_index_from_string(cfg["colonne_debut_retours"])
+    col_date = column_index_from_string(
+        cfg["colonne_date"]
+    )
+    col_start = column_index_from_string(
+        cfg["colonne_debut_retours"]
+    )
 
     dates = []
     dates_source = []
     donnees = []
 
     while True:
-        date_brute = ws.cell(ligne, col_date).value
+        date_brute = ws.cell(
+            ligne,
+            col_date,
+        ).value
 
         if not est_date_excel(date_brute):
             break
 
         valeurs = []
 
-        for j in range(N_SECTEURS):
-            valeur = ws.cell(ligne, col_start + j).value
+        for j in range(len(secteurs)):
+            valeur = ws.cell(
+                ligne,
+                col_start + j,
+            ).value
             valeurs.append(
-                float(valeur) if est_nombre(valeur) else np.nan
+                float(valeur)
+                if est_nombre(valeur)
+                else np.nan
             )
 
         date_source = convertir_date_excel(date_brute)
@@ -305,41 +367,78 @@ def lire_bloc_retours(ws):
     df = pd.DataFrame(
         donnees,
         index=dates,
-        columns=SECTEURS,
+        columns=secteurs,
     )
 
-    cle = f"{ws.title}_retours"
-    return figer_historique(df, dates_source, cle)
+    cle = f"{cle_prefixe}{ws.title}_retours"
+    return figer_historique(
+        df,
+        dates_source,
+        cle,
+    )
 
 
-def lire_macro_externe(wb_macro):
-    """Lit le macro score et le régime Europe depuis le fichier macro."""
-    cfg = CONFIG_MACRO_EU
+def lire_macro_externe(
+    wb_macro,
+    config_macro=None,
+    poids_regime=None,
+    cle_prefixe="",
+):
+    """Lit le macro score et le régime du marché."""
+    cfg = config_macro or MODELE_EU["macro"]
+    poids_regime = (
+        poids_regime
+        or MODELE_EU["poids_regime"]
+    )
+
     ws = wb_macro[cfg["sheet"]]
 
     ligne = cfg["ligne_debut"]
-    col_date = column_index_from_string(cfg["colonne_date"])
-    col_score = column_index_from_string(cfg["colonne_score"])
-    col_regime = column_index_from_string(cfg["colonne_regime"])
+    col_date = column_index_from_string(
+        cfg["colonne_date"]
+    )
+    col_score = column_index_from_string(
+        cfg["colonne_score"]
+    )
+    col_regime = column_index_from_string(
+        cfg["colonne_regime"]
+    )
 
     dates_source = []
     donnees = []
 
     while True:
-        date_brute = ws.cell(ligne, col_date).value
+        date_brute = ws.cell(
+            ligne,
+            col_date,
+        ).value
 
         if not est_date_excel(date_brute):
             break
 
-        score = ws.cell(ligne, col_score).value
-        regime = ws.cell(ligne, col_regime).value
+        score = ws.cell(
+            ligne,
+            col_score,
+        ).value
+        regime = ws.cell(
+            ligne,
+            col_regime,
+        ).value
         date_source = convertir_date_excel(date_brute)
 
         dates_source.append(date_source)
         donnees.append(
             {
-                "macro_score": float(score) if est_nombre(score) else np.nan,
-                "cycle": regime if regime in POIDS_REGIME else None,
+                "macro_score": (
+                    float(score)
+                    if est_nombre(score)
+                    else np.nan
+                ),
+                "cycle": (
+                    regime
+                    if regime in poids_regime
+                    else None
+                ),
             }
         )
         ligne += 1
@@ -352,37 +451,55 @@ def lire_macro_externe(wb_macro):
     df = figer_historique(
         df,
         dates_source,
-        "macro_eu_outputs",
+        f"{cle_prefixe}macro_outputs",
     )
 
     return df.sort_index()
 
 
-def lire_taux_us10y(wb_eu):
+def lire_taux_us10y(
+    wb_secteur,
+    config_signal=None,
+    cle_prefixe="",
+):
     """Lit la série US 10Y utilisée par le rate overlay."""
-    cfg = CONFIG_SIGNAL_TAUX
-    ws = wb_eu[cfg["sheet"]]
+    cfg = config_signal or MODELE_EU["signal_taux"]
+    ws = wb_secteur[cfg["sheet"]]
 
     ligne = cfg["ligne_debut"]
-    col_date = column_index_from_string(cfg["colonne_date"])
-    col_us10y = column_index_from_string(cfg["colonne_us10y"])
+    col_date = column_index_from_string(
+        cfg["colonne_date"]
+    )
+    col_us10y = column_index_from_string(
+        cfg["colonne_us10y"]
+    )
 
     dates_source = []
     donnees = []
 
     while True:
-        date_brute = ws.cell(ligne, col_date).value
+        date_brute = ws.cell(
+            ligne,
+            col_date,
+        ).value
 
         if not est_date_excel(date_brute):
             break
 
-        taux = ws.cell(ligne, col_us10y).value
+        taux = ws.cell(
+            ligne,
+            col_us10y,
+        ).value
         date_source = convertir_date_excel(date_brute)
 
         dates_source.append(date_source)
         donnees.append(
             {
-                "us10y": float(taux) if est_nombre(taux) else np.nan,
+                "us10y": (
+                    float(taux)
+                    if est_nombre(taux)
+                    else np.nan
+                ),
             }
         )
         ligne += 1
@@ -395,7 +512,7 @@ def lire_taux_us10y(wb_eu):
     df = figer_historique(
         df,
         dates_source,
-        "signal_taux_us10y",
+        f"{cle_prefixe}signal_taux_us10y",
     )
 
     return df.sort_index()

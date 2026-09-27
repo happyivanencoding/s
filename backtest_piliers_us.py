@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-"""Backtest des sous-variables du modèle sectoriel EU."""
+"""Backtest des sous-variables du modèle sectoriel US."""
 
 from pathlib import Path
 import argparse
 
-from local_config import MODELE_EU
-from model_secto_eu import (
+from local_config import MODELE_US
+from model_secto_us import (
     FICHIER_EXCEL_PAR_DEFAUT,
     FICHIER_MACRO_PAR_DEFAUT,
     calculer_modele,
@@ -13,7 +13,7 @@ from model_secto_eu import (
 from sector_backtest import executer_backtests
 
 
-CONFIG = MODELE_EU
+CONFIG = MODELE_US
 DOSSIER_SORTIE = (
     Path(__file__).resolve().parent
     / "output"
@@ -23,7 +23,7 @@ DOSSIER_SORTIE = (
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Backtest des sous-variables du modèle sectoriel EU"
+        description="Backtest des sous-variables du modèle sectoriel US"
     )
     parser.add_argument(
         "--pillar",

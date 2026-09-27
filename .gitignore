@@ -6,6 +6,7 @@ README.md
 output/
 data_history/
 audit_modele_eu_executed.ipynb
+audit_modele_us_executed.ipynb
 
 # Python
 __pycache__/
