@@ -1,39 +1,22 @@
 # -*- coding: utf-8 -*-
-"""
-Modèle sectoriel Europe - version Python.
-
-Objectif :
-1. Lire uniquement les données mises à jour dans le fichier Excel FactSet.
-2. Recalculer en Python les scores des piliers avec la même logique qu'Excel.
-3. Produire les Top 3 / Worst 3 et la recommandation mensuelle.
-
-"""
+"""Calcul du modèle sectoriel Europe."""
 
 from pathlib import Path
 import math
-import os
 
 import numpy as np
 import pandas as pd
-from openpyxl import load_workbook
-from openpyxl.utils import column_index_from_string
 
 
-# ---------------------------------------------------------------------------
-# 1. CONFIGURATION
-# ---------------------------------------------------------------------------
+# Configuration
 
 from local_config import (
     ARRONDI_PILIER,
-    CONFIG_HISTORIQUE,
-    CONFIG_MACRO_EU,
     CONFIG_MOMENTUM,
     CONFIG_SIGNAL_TAUX,
     CONFIG_VOLATILITE,
     EXCLUSIONS_PILIER,
     FENETRE_HISTORIQUE,
-    FICHIER_EXCEL_EU,
-    FICHIER_EXCEL_MACRO,
     N_TOP,
     N_WORST,
     PILIERS_RATE_OVERLAY,
@@ -45,42 +28,17 @@ from local_config import (
     VARIABLES_HISTORIQUES,
 )
 
-try:
-    from local_config_private import (
-        FICHIER_EXCEL_EU as FICHIER_EXCEL_EU_PRIVE,
-        FICHIER_EXCEL_MACRO as FICHIER_EXCEL_MACRO_PRIVE,
-    )
-except ImportError:
-    FICHIER_EXCEL_EU_PRIVE = ""
-    FICHIER_EXCEL_MACRO_PRIVE = ""
-
-
-def choisir_chemin(configuration, surcharge, variable_env):
-    """Sélectionne le chemin configuré selon l'ordre de priorité défini."""
-    chemin_env = os.getenv(variable_env)
-    if chemin_env:
-        return chemin_env
-
-    if surcharge:
-        return surcharge
-
-    if configuration:
-        return configuration
-
-    return None
-
-
-FICHIER_EXCEL_PAR_DEFAUT = choisir_chemin(
-    FICHIER_EXCEL_EU,
-    FICHIER_EXCEL_EU_PRIVE,
-    "SCORE_SECTORIEL_EU_XLSM",
+from data_io import (
+    FICHIER_EXCEL_PAR_DEFAUT,
+    FICHIER_MACRO_PAR_DEFAUT,
+    lire_bloc_retours,
+    lire_dates_et_bloc,
+    lire_macro_externe,
+    lire_taux_us10y,
+    normaliser_index_mensuel,
+    ouvrir_workbooks,
 )
 
-FICHIER_MACRO_PAR_DEFAUT = choisir_chemin(
-    FICHIER_EXCEL_MACRO,
-    FICHIER_EXCEL_MACRO_PRIVE,
-    "SCORE_MACRO_EU_XLSX",
-)
 
 DOSSIER_SORTIE_PAR_DEFAUT = Path(__file__).resolve().parent / "output"
 
@@ -88,151 +46,10 @@ N_SECTEURS = len(SECTEURS)
 N_OBSERVATIONS_RANK = FENETRE_HISTORIQUE + 1
 
 
-# ---------------------------------------------------------------------------
-# 2. PETITES FONCTIONS UTILITAIRES
-# ---------------------------------------------------------------------------
-
-def est_nombre(x):
-    """Retourne True uniquement pour une valeur numérique exploitable."""
-    return isinstance(x, (int, float, np.integer, np.floating)) and not pd.isna(x)
-
-
-def convertir_date_excel(x):
-    """Convertit une date Excel (numéro ou datetime) en Timestamp pandas."""
-    if isinstance(x, (pd.Timestamp, np.datetime64)):
-        return pd.Timestamp(x)
-
-    # OpenPyXL renvoie souvent directement un datetime Python.
-    if hasattr(x, "year") and hasattr(x, "month") and hasattr(x, "day"):
-        return pd.Timestamp(x)
-
-    if est_nombre(x):
-        return pd.Timestamp("1899-12-30") + pd.to_timedelta(float(x), unit="D")
-
-    return pd.NaT
-
-
-def est_date_excel(x):
-    """Teste si la cellule contient une date exploitable."""
-    return not pd.isna(convertir_date_excel(x))
-
-
-def normaliser_date_mensuelle(x):
-    """Ramène toute date au dernier jour calendaire de son mois."""
-    date = convertir_date_excel(x)
-
-    if pd.isna(date):
-        return pd.NaT
-
-    return pd.Timestamp(date).to_period("M").to_timestamp("M")
-
-
-def normaliser_index_mensuel(df):
-    """
-    Normalise un index mensuel avant toute jointure ou intersection.
-
-    Si plusieurs dates du même mois existent, la première occurrence est
-    conservée. Les données Excel sont lues du mois le plus récent au plus ancien.
-    """
-    resultat = df.copy()
-    resultat.index = pd.DatetimeIndex(
-        [normaliser_date_mensuelle(x) for x in resultat.index]
-    )
-    resultat = resultat[~resultat.index.duplicated(keep="first")]
-    return resultat.sort_index(ascending=False)
-
-
-def nom_fichier_historique(cle):
-    """Construit un nom de fichier stable pour une série historique."""
-    caracteres = []
-
-    for caractere in cle:
-        if caractere.isalnum() or caractere in {"_", "-"}:
-            caracteres.append(caractere)
-        else:
-            caracteres.append("_")
-
-    return "".join(caracteres) + ".csv"
-
-
-def figer_historique(df, dates_source, cle):
-    """
-    Conserve la première version enregistrée de chaque mois.
-
-    La clé du modèle est toujours la fin de mois. La date source observée
-    lors de la première insertion est conservée dans le fichier historique.
-    Les mois déjà présents ne sont jamais remplacés.
-    """
-    resultat = normaliser_index_mensuel(df)
-
-    dates_source = pd.Series(
-        [convertir_date_excel(x) for x in dates_source],
-        index=[normaliser_date_mensuelle(x) for x in dates_source],
-        name="date_source",
-    )
-    dates_source = dates_source[~dates_source.index.duplicated(keep="first")]
-
-    courant = resultat.copy()
-    courant.insert(
-        0,
-        "date_source",
-        dates_source.reindex(courant.index).values,
-    )
-    courant.index.name = "date"
-
-    if not CONFIG_HISTORIQUE.get("actif", True):
-        return resultat
-
-    dossier = Path(__file__).resolve().parent / CONFIG_HISTORIQUE["dossier"]
-    dossier.mkdir(parents=True, exist_ok=True)
-
-    fichier = dossier / nom_fichier_historique(cle)
-
-    if fichier.exists():
-        historique = pd.read_csv(
-            fichier,
-            index_col="date",
-            parse_dates=["date", "date_source"],
-        )
-        historique.index = pd.DatetimeIndex(
-            [normaliser_date_mensuelle(x) for x in historique.index]
-        )
-        historique = historique[
-            ~historique.index.duplicated(keep="first")
-        ]
-
-        nouveaux_mois = courant.loc[
-            ~courant.index.isin(historique.index)
-        ]
-
-        combine = pd.concat(
-            [historique, nouveaux_mois],
-            axis=0,
-            sort=False,
-        )
-    else:
-        combine = courant
-
-    combine = combine.sort_index(ascending=False)
-    combine.index.name = "date"
-    combine.to_csv(fichier, date_format="%Y-%m-%d")
-
-    colonnes = list(df.columns)
-
-    for colonne in colonnes:
-        if colonne not in combine.columns:
-            combine[colonne] = np.nan
-
-    return combine[colonnes].copy()
-
+# Classements
 
 def rang_excel(valeur, valeurs, ordre):
-    """
-    Reproduit RANK d'Excel avec la méthode de rang "minimum".
-
-    ordre = 1 : classement croissant, une grande valeur reçoit un grand rang.
-    ordre = 0 : classement décroissant, une petite valeur reçoit un grand rang.
-    """
+    """Reproduit RANK Excel. ordre=1 croissant, ordre=0 décroissant."""
     if pd.isna(valeur):
         return np.nan
 
@@ -248,7 +65,7 @@ def rang_excel(valeur, valeurs, ordre):
 
 
 def rang_transversal_0_10(ligne, ordre):
-    """Transforme les 13 secteurs en rangs 0-10 comme dans Excel."""
+    """Convertit le classement transversal des secteurs sur une échelle 0-10."""
     result = pd.Series(index=ligne.index, dtype=float)
 
     for secteur in ligne.index:
@@ -287,10 +104,7 @@ def rang_transversal_momentum(ligne):
 
 
 def rang_secteurs(ligne):
-    """
-    Rang final des secteurs : 1 = Worst, 13 = Best.
-    Le score d'entrée est déjà orienté "plus grand = meilleur".
-    """
+    """Classe les secteurs de 1 = Worst à 13 = Best."""
     result = pd.Series(index=ligne.index, dtype=float)
 
     for secteur in ligne.index:
@@ -301,160 +115,6 @@ def rang_secteurs(ligne):
         result[secteur] = rang_excel(valeur, ligne.values, ordre=1)
 
     return result
-
-
-# ---------------------------------------------------------------------------
-# 3. LECTURE DES DONNÉES EXCEL
-# ---------------------------------------------------------------------------
-
-def lire_dates_et_bloc(ws, colonne_depart, ligne_depart=8, colonne_date="A"):
-    """
-    Lit un bloc de 13 colonnes dans un FMA.
-    Les lignes sont dans le même ordre que le fichier Excel :
-    date la plus récente en premier.
-    """
-    col_start = column_index_from_string(colonne_depart)
-    col_date = column_index_from_string(colonne_date)
-
-    dates = []
-    dates_source = []
-    donnees = []
-    ligne = ligne_depart
-
-    while True:
-        date_brute = ws.cell(ligne, col_date).value
-
-        if not est_date_excel(date_brute):
-            break
-
-        valeurs = []
-        for j in range(N_SECTEURS):
-            v = ws.cell(ligne, col_start + j).value
-            valeurs.append(float(v) if est_nombre(v) else np.nan)
-
-        date_source = convertir_date_excel(date_brute)
-        dates.append(date_source)
-        dates_source.append(date_source)
-        donnees.append(valeurs)
-        ligne += 1
-
-    df = pd.DataFrame(donnees, index=dates, columns=SECTEURS)
-    cle = f"{ws.title}_{colonne_depart}"
-    return figer_historique(df, dates_source, cle)
-
-
-def lire_bloc_retours(ws):
-    """Lit les rendements mensuels sectoriels utilisés par le pilier Volatility."""
-    cfg = CONFIG_VOLATILITE
-
-    ligne = cfg["ligne_debut_retours"]
-    col_date = column_index_from_string(cfg["colonne_date"])
-    col_start = column_index_from_string(cfg["colonne_debut_retours"])
-
-    dates = []
-    dates_source = []
-    donnees = []
-
-    while True:
-        date_brute = ws.cell(ligne, col_date).value
-        if not est_date_excel(date_brute):
-            break
-
-        valeurs = []
-        for j in range(N_SECTEURS):
-            v = ws.cell(ligne, col_start + j).value
-            valeurs.append(float(v) if est_nombre(v) else np.nan)
-
-        date_source = convertir_date_excel(date_brute)
-        dates.append(date_source)
-        dates_source.append(date_source)
-        donnees.append(valeurs)
-        ligne += 1
-
-    df = pd.DataFrame(donnees, index=dates, columns=SECTEURS)
-    cle = f"{ws.title}_retours"
-    return figer_historique(df, dates_source, cle)
-
-
-def lire_macro_externe(wb_macro):
-    """
-    Lit les deux outputs finaux du fichier macro Europe :
-    - Signal multi quantitatif ;
-    - New Cycle.
-
-    Le score macro est conservé dans les sorties de contrôle.
-    Le régime sert à appliquer les poids C / R / E / SD.
-    """
-    cfg = CONFIG_MACRO_EU
-    ws = wb_macro[cfg["sheet"]]
-
-    ligne = cfg["ligne_debut"]
-    col_date = column_index_from_string(cfg["colonne_date"])
-    col_score = column_index_from_string(cfg["colonne_score"])
-    col_regime = column_index_from_string(cfg["colonne_regime"])
-
-    dates_source = []
-    donnees = []
-
-    while True:
-        date_brute = ws.cell(ligne, col_date).value
-        if not est_date_excel(date_brute):
-            break
-
-        score = ws.cell(ligne, col_score).value
-        regime = ws.cell(ligne, col_regime).value
-        date_source = convertir_date_excel(date_brute)
-
-        dates_source.append(date_source)
-        donnees.append(
-            {
-                "macro_score": float(score) if est_nombre(score) else np.nan,
-                "cycle": regime if regime in POIDS_REGIME else None,
-            }
-        )
-        ligne += 1
-
-    df = pd.DataFrame(donnees, index=dates_source)
-    df = figer_historique(df, dates_source, "macro_eu_outputs")
-    return df.sort_index()
-
-
-def lire_taux_us10y(wb_eu):
-    """
-    Lit uniquement la série US 10Y nécessaire au rate overlay.
-
-    Ce signal est séparé du macro cycle.
-    Le macro cycle lui-même vient du fichier macro externe.
-    """
-    cfg = CONFIG_SIGNAL_TAUX
-    ws = wb_eu[cfg["sheet"]]
-
-    ligne = cfg["ligne_debut"]
-    col_date = column_index_from_string(cfg["colonne_date"])
-    col_us10y = column_index_from_string(cfg["colonne_us10y"])
-
-    dates_source = []
-    donnees = []
-
-    while True:
-        date_brute = ws.cell(ligne, col_date).value
-        if not est_date_excel(date_brute):
-            break
-
-        taux = ws.cell(ligne, col_us10y).value
-        date_source = convertir_date_excel(date_brute)
-
-        dates_source.append(date_source)
-        donnees.append(
-            {
-                "us10y": float(taux) if est_nombre(taux) else np.nan,
-            }
-        )
-        ligne += 1
-
-    df = pd.DataFrame(donnees, index=dates_source)
-    df = figer_historique(df, dates_source, "signal_taux_us10y")
-    return df.sort_index()
 
 
 def percentrank_inc(valeurs, x):
@@ -539,9 +199,7 @@ def construire_contexte_macro(wb_eu, wb_macro):
     return contexte.sort_index()
 
 
-# ---------------------------------------------------------------------------
-# 4. CALCUL DES SOUS-VARIABLES HISTORIQUES
-# ---------------------------------------------------------------------------
+# Sous-variables historiques
 
 def calculer_diff_vs_moyenne(raw, moyenne_sans_finance=False):
     """
@@ -604,7 +262,7 @@ def calculer_variable_historique(
     mix_rank_transversal,
     fenetre_par_secteur=None,
 ):
-    """Calcule une sous-variable exactement selon la logique FMA."""
+    """Calcule le score historique d'une sous-variable FMA."""
     diff = calculer_diff_vs_moyenne(raw, moyenne_sans_finance)
     score_hist = calculer_score_historique(
         diff,
@@ -627,12 +285,10 @@ def calculer_variable_historique(
     return score
 
 
-# ---------------------------------------------------------------------------
-# 5. PILIERS LEVERAGE / MARGIN / VALUE / GROWTH
-# ---------------------------------------------------------------------------
+# Piliers Leverage / Margin / Value / Growth
 
 def calculer_piliers_historiques(wb):
-    """Calcule les 4 piliers basés sur les percentiles historiques."""
+    """Calcule Leverage, Margin, Value et Growth."""
     sous_scores = {}
     piliers = {}
 
@@ -693,12 +349,10 @@ def calculer_piliers_historiques(wb):
     return piliers, sous_scores
 
 
-# ---------------------------------------------------------------------------
-# 6. PILIER MOMENTUM
-# ---------------------------------------------------------------------------
+# Momentum
 
 def calculer_momentum(wb):
-    """Reproduit MOM_FMA avec la configuration définie dans local_config.py."""
+    """Calcule les trois composantes Momentum puis leur score moyen."""
     cfg = CONFIG_MOMENTUM
     ws = wb[cfg["sheet"]]
 
@@ -775,12 +429,10 @@ def calculer_momentum(wb):
     return momentum, sous_scores
 
 
-# ---------------------------------------------------------------------------
-# 7. PILIER LOW VOLATILITY
-# ---------------------------------------------------------------------------
+# Low Volatility
 
 def calculer_volatilite(wb):
-    """Reproduit Vol_FMA avec la configuration définie dans local_config.py."""
+    """Calcule la volatilité totale, la downside volatility et leur score moyen."""
     cfg = CONFIG_VOLATILITE
     retours = lire_bloc_retours(wb[cfg["sheet_retours"]])
 
@@ -828,9 +480,7 @@ def calculer_volatilite(wb):
     return volatility, sous_scores, retours
 
 
-# ---------------------------------------------------------------------------
-# 8. AGRÉGATION DES PILIERS ET RECOMMANDATIONS
-# ---------------------------------------------------------------------------
+# Agrégation et recommandations
 
 def aligner_piliers(piliers):
     """
@@ -865,7 +515,7 @@ def aligner_piliers(piliers):
 
 
 def calculer_rangs_piliers(piliers):
-    """Transforme chaque score 0-10 en rang sectoriel 1-13."""
+    """Classe les secteurs dans chacun des six piliers."""
     rangs = {}
 
     for nom, df in piliers.items():
@@ -878,7 +528,7 @@ def calculer_rangs_piliers(piliers):
 
 
 def calculer_score_pondere(rangs, poids, date):
-    """Somme pondérée des rangs des piliers pour une date."""
+    """Agrège les rangs des piliers avec les poids fournis."""
     resultat = pd.Series(0.0, index=SECTEURS)
     valide = pd.Series(True, index=SECTEURS)
 
@@ -927,7 +577,7 @@ def choisir_top_worst(top_count, bottom_count, rang_global):
 
 
 def calculer_resultats_finaux(piliers, contexte_macro):
-    """Calcule l'historique complet du modèle final Europe."""
+    """Construit les scores finaux, les votes Top/Worst et les recommandations."""
     piliers = aligner_piliers(piliers)
     rangs = calculer_rangs_piliers(piliers)
 
@@ -1037,57 +687,16 @@ def calculer_resultats_finaux(piliers, contexte_macro):
     return pd.DataFrame(lignes), piliers, rangs, contexte_macro
 
 
-# ---------------------------------------------------------------------------
-# 9. FONCTION PRINCIPALE
-# ---------------------------------------------------------------------------
+# Exécution du modèle
 
 def calculer_modele(
     fichier_excel=None,
     fichier_macro=None,
 ):
-    """Point d'entrée principal réutilisé par les scripts de plot et backtest."""
-    if fichier_excel is None:
-        fichier_excel = FICHIER_EXCEL_PAR_DEFAUT
-
-    if fichier_macro is None:
-        fichier_macro = FICHIER_MACRO_PAR_DEFAUT
-
-    if fichier_excel is None:
-        raise ValueError(
-            "Aucun fichier sectoriel configuré. "
-            "Utiliser --excel, SCORE_SECTORIEL_EU_XLSM "
-            "ou local_config_private.py."
-        )
-
-    if fichier_macro is None:
-        raise ValueError(
-            "Aucun fichier macro configuré. "
-            "Utiliser --macro-excel, SCORE_MACRO_EU_XLSX "
-            "ou local_config_private.py."
-        )
-
-    fichier_excel = Path(fichier_excel)
-    fichier_macro = Path(fichier_macro)
-
-    if not fichier_excel.exists():
-        raise FileNotFoundError(f"Fichier sectoriel introuvable : {fichier_excel}")
-
-    if not fichier_macro.exists():
-        raise FileNotFoundError(f"Fichier macro introuvable : {fichier_macro}")
-
-    # data_only=True : lecture des valeurs mises en cache après refresh Excel.
-    wb_eu = load_workbook(
+    """Exécute l'ensemble du modèle et retourne les résultats intermédiaires."""
+    wb_eu, wb_macro = ouvrir_workbooks(
         fichier_excel,
-        data_only=True,
-        read_only=False,
-        keep_vba=False,
-    )
-
-    wb_macro = load_workbook(
         fichier_macro,
-        data_only=True,
-        read_only=False,
-        keep_vba=False,
     )
 
     try:
