@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Entrées de données des modèles sectoriels."""
+"""Entrées data des modèles sectoriels."""
 
 from pathlib import Path
 import os
@@ -203,9 +203,9 @@ def figer_historique(df, dates_source, cle):
     courant.insert(0, "series_key", cle)
     courant = courant.reset_index(drop=True)
 
-    colonnes_donnees = list(df.columns)
+    colonnes_data = list(df.columns)
     courant = courant[
-        courant[colonnes_donnees]
+        courant[colonnes_data]
         .notna()
         .any(axis=1)
     ]
@@ -291,7 +291,7 @@ def lire_dates_et_bloc(
 
     dates = []
     dates_source = []
-    donnees = []
+    data = []
     ligne = ligne_depart
 
     while True:
@@ -316,11 +316,11 @@ def lire_dates_et_bloc(
         date_source = convertir_date_excel(date_brute)
         dates.append(date_source)
         dates_source.append(date_source)
-        donnees.append(valeurs)
+        data.append(valeurs)
         ligne += 1
 
     df = pd.DataFrame(
-        donnees,
+        data,
         index=dates,
         columns=secteurs,
     )
@@ -353,7 +353,7 @@ def lire_bloc_returns(
 
     dates = []
     dates_source = []
-    donnees = []
+    data = []
 
     while True:
         date_brute = ws.cell(
@@ -380,11 +380,11 @@ def lire_bloc_returns(
         date_source = convertir_date_excel(date_brute)
         dates.append(date_source)
         dates_source.append(date_source)
-        donnees.append(valeurs)
+        data.append(valeurs)
         ligne += 1
 
     df = pd.DataFrame(
-        donnees,
+        data,
         index=dates,
         columns=secteurs,
     )
@@ -415,7 +415,7 @@ def lire_benchmark_returns(
 
     dates = []
     dates_source = []
-    donnees = []
+    data = []
 
     while True:
         date_brute = ws.cell(
@@ -434,7 +434,7 @@ def lire_benchmark_returns(
         date_source = convertir_date_excel(date_brute)
         dates.append(date_source)
         dates_source.append(date_source)
-        donnees.append(
+        data.append(
             float(valeur)
             if est_nombre(valeur)
             else np.nan
@@ -442,7 +442,7 @@ def lire_benchmark_returns(
         ligne += 1
 
     df = pd.DataFrame(
-        {"benchmark": donnees},
+        {"benchmark": data},
         index=dates,
     )
 
@@ -481,7 +481,7 @@ def lire_macro_externe(
     )
 
     dates_source = []
-    donnees = []
+    data = []
 
     while True:
         date_brute = ws.cell(
@@ -503,7 +503,7 @@ def lire_macro_externe(
         date_source = convertir_date_excel(date_brute)
 
         dates_source.append(date_source)
-        donnees.append(
+        data.append(
             {
                 "macro_score": (
                     float(score)
@@ -520,7 +520,7 @@ def lire_macro_externe(
         ligne += 1
 
     df = pd.DataFrame(
-        donnees,
+        data,
         index=dates_source,
     )
 
@@ -551,7 +551,7 @@ def lire_taux_us10y(
     )
 
     dates_source = []
-    donnees = []
+    data = []
 
     while True:
         date_brute = ws.cell(
@@ -569,7 +569,7 @@ def lire_taux_us10y(
         date_source = convertir_date_excel(date_brute)
 
         dates_source.append(date_source)
-        donnees.append(
+        data.append(
             {
                 "us10y": (
                     float(taux)
@@ -581,7 +581,7 @@ def lire_taux_us10y(
         ligne += 1
 
     df = pd.DataFrame(
-        donnees,
+        data,
         index=dates_source,
     )
 
