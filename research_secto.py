@@ -19,14 +19,14 @@ MARCHES = {
 }
 
 
-def preparer_retour_futur(retours):
+def preparer_returns_futurs(returns):
     """Aligne le rendement du mois suivant avec le signal courant."""
-    return retours.sort_index().shift(-1)
+    return returns.sort_index().shift(-1)
 
 
 def backtester_score(
     score,
-    retours_futurs,
+    returns_futurs,
     benchmark_futur=None,
     top_n=3,
     start=None,
@@ -35,7 +35,7 @@ def backtester_score(
     """Backtest égal-pondéré d'un score sectoriel."""
     score = score.sort_index()
     dates = score.index.intersection(
-        retours_futurs.index
+        returns_futurs.index
     ).sort_values()
 
     if start:
@@ -48,7 +48,7 @@ def backtester_score(
 
     for date in dates:
         s = score.loc[date].dropna()
-        r = retours_futurs.loc[date].dropna()
+        r = returns_futurs.loc[date].dropna()
 
         communs = s.index.intersection(r.index)
         s = s.loc[communs]
@@ -494,11 +494,11 @@ class RechercheSectorielle:
                 f"Variables inconnues pour {pilier} : {inconnues}"
             )
 
-        retours_futurs = preparer_retour_futur(
-            resultats["retours"]
+        returns_futurs = preparer_returns_futurs(
+            resultats["returns"]
         )
-        benchmark_futur = preparer_retour_futur(
-            resultats["benchmark_retours"]
+        benchmark_futur = preparer_returns_futurs(
+            resultats["benchmark_returns"]
         )["benchmark"]
 
         scores = {
@@ -517,7 +517,7 @@ class RechercheSectorielle:
         for nom, score in scores.items():
             bt = backtester_score(
                 score,
-                retours_futurs,
+                returns_futurs,
                 benchmark_futur=benchmark_futur,
                 top_n=top_n,
                 start=start,

@@ -333,7 +333,7 @@ def lire_dates_et_bloc(
     )
 
 
-def lire_bloc_retours(
+def lire_bloc_returns(
     ws,
     config_volatilite=None,
     secteurs=None,
@@ -343,12 +343,12 @@ def lire_bloc_retours(
     cfg = config_volatilite or MODELE_EU["volatilite"]
     secteurs = secteurs or MODELE_EU["secteurs"]
 
-    ligne = cfg["ligne_debut_retours"]
+    ligne = cfg["ligne_debut_returns"]
     col_date = column_index_from_string(
         cfg["colonne_date"]
     )
     col_start = column_index_from_string(
-        cfg["colonne_debut_retours"]
+        cfg["colonne_debut_returns"]
     )
 
     dates = []
@@ -389,7 +389,7 @@ def lire_bloc_retours(
         columns=secteurs,
     )
 
-    cle = f"{cle_prefixe}{ws.title}_retours"
+    cle = f"{cle_prefixe}{ws.title}_returns"
     return figer_historique(
         df,
         dates_source,
@@ -397,7 +397,7 @@ def lire_bloc_retours(
     )
 
 
-def lire_benchmark_retours(
+def lire_benchmark_returns(
     ws,
     config_volatilite=None,
     cle_prefixe="",
@@ -405,12 +405,12 @@ def lire_benchmark_retours(
     """Lit les rendements mensuels du benchmark du marché."""
     cfg = config_volatilite or MODELE_EU["volatilite"]
 
-    ligne = cfg["ligne_debut_retours"]
+    ligne = cfg["ligne_debut_returns"]
     col_date = column_index_from_string(
         cfg["colonne_date"]
     )
     col_benchmark = column_index_from_string(
-        cfg["colonne_benchmark_retours"]
+        cfg["colonne_benchmark_returns"]
     )
 
     dates = []

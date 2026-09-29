@@ -8,8 +8,8 @@ import numpy as np
 import pandas as pd
 
 from data_io import (
-    lire_benchmark_retours,
-    lire_bloc_retours,
+    lire_benchmark_returns,
+    lire_bloc_returns,
     lire_dates_et_bloc,
     lire_macro_externe,
     lire_taux_us10y,
@@ -476,20 +476,20 @@ def calculer_volatilite(wb, config):
     cfg = config["volatilite"]
     secteurs = config["secteurs"]
 
-    retours = lire_bloc_retours(
-        wb[cfg["sheet_retours"]],
+    returns = lire_bloc_returns(
+        wb[cfg["sheet_returns"]],
         config_volatilite=cfg,
         secteurs=secteurs,
         cle_prefixe=config["historique_prefixe"],
     )
 
     vol_total = pd.DataFrame(
-        index=retours.index,
+        index=returns.index,
         columns=secteurs,
         dtype=float,
     )
     vol_downside = pd.DataFrame(
-        index=retours.index,
+        index=returns.index,
         columns=secteurs,
         dtype=float,
     )
@@ -497,15 +497,15 @@ def calculer_volatilite(wb, config):
     n_obs_vol = cfg["offset_volatilite"] + 1
     n_obs_downside = cfg["offset_downside"] + 1
 
-    for i in range(len(retours)):
-        if i + n_obs_vol <= len(retours):
-            fenetre = retours.iloc[i : i + n_obs_vol]
+    for i in range(len(returns)):
+        if i + n_obs_vol <= len(returns):
+            fenetre = returns.iloc[i : i + n_obs_vol]
             vol_total.iloc[i] = (
                 fenetre.std(ddof=1) * math.sqrt(12)
             )
 
-        if i + n_obs_downside <= len(retours):
-            fenetre = retours.iloc[i : i + n_obs_downside]
+        if i + n_obs_downside <= len(returns):
+            fenetre = returns.iloc[i : i + n_obs_downside]
 
             for secteur in secteurs:
                 negatifs = fenetre[secteur][
@@ -514,7 +514,7 @@ def calculer_volatilite(wb, config):
 
                 if len(negatifs) >= 2:
                     vol_downside.at[
-                        retours.index[i],
+                        returns.index[i],
                         secteur,
                     ] = (
                         negatifs.std(ddof=1)
@@ -547,7 +547,7 @@ def calculer_volatilite(wb, config):
         "downside_volatility_18m": score_downside,
     }
 
-    return volatility, sous_scores, retours
+    return volatility, sous_scores, returns
 
 
 def aligner_piliers(piliers):
@@ -889,12 +889,12 @@ def executer_modele(wb_secteur, wb_macro, config):
         wb_secteur,
         config,
     )
-    volatility, sous_vol, retours = calculer_volatilite(
+    volatility, sous_vol, returns = calculer_volatilite(
         wb_secteur,
         config,
     )
-    benchmark_retours = lire_benchmark_retours(
-        wb_secteur[config["volatilite"]["sheet_retours"]],
+    benchmark_returns = lire_benchmark_returns(
+        wb_secteur[config["volatilite"]["sheet_returns"]],
         config_volatilite=config["volatilite"],
         cle_prefixe=config["historique_prefixe"],
     )
@@ -927,8 +927,8 @@ def executer_modele(wb_secteur, wb_macro, config):
         "piliers": piliers,
         "rangs": rangs,
         "sous_scores": sous_scores,
-        "retours": retours,
-        "benchmark_retours": benchmark_retours,
+        "returns": returns,
+        "benchmark_returns": benchmark_returns,
         "contexte_macro": contexte_macro,
     }
 

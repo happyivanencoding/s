@@ -197,12 +197,12 @@ CONFIG_MOMENTUM = {
 }
 
 CONFIG_VOLATILITE = {
-    "sheet_retours": "Returns_EQ",
-    "ligne_debut_retours": 7,
+    "sheet_returns": "Returns_EQ",
+    "ligne_debut_returns": 7,
     "colonne_date": "P",
-    "colonne_benchmark_retours": "Q",
+    "colonne_benchmark_returns": "Q",
     "benchmark_nom": "FTSE World Europe",
-    "colonne_debut_retours": "R",
+    "colonne_debut_returns": "R",
     "offset_volatilite": 6,
     "offset_downside": 18,
 }
@@ -501,12 +501,12 @@ CONFIG_MOMENTUM_US = {
 }
 
 CONFIG_VOLATILITE_US = {
-    "sheet_retours": "Returns_EQ",
-    "ligne_debut_retours": 7,
+    "sheet_returns": "Returns_EQ",
+    "ligne_debut_returns": 7,
     "colonne_date": "O",
-    "colonne_benchmark_retours": "P",
+    "colonne_benchmark_returns": "P",
     "benchmark_nom": "WIUSAU Index",
-    "colonne_debut_retours": "Q",
+    "colonne_debut_returns": "Q",
     "offset_volatilite": 6,
     "offset_downside": 18,
 }
