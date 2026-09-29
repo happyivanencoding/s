@@ -397,6 +397,63 @@ def lire_bloc_retours(
     )
 
 
+def lire_benchmark_retours(
+    ws,
+    config_volatilite=None,
+    cle_prefixe="",
+):
+    """Lit les rendements mensuels du benchmark du marché."""
+    cfg = config_volatilite or MODELE_EU["volatilite"]
+
+    ligne = cfg["ligne_debut_retours"]
+    col_date = column_index_from_string(
+        cfg["colonne_date"]
+    )
+    col_benchmark = column_index_from_string(
+        cfg["colonne_benchmark_retours"]
+    )
+
+    dates = []
+    dates_source = []
+    donnees = []
+
+    while True:
+        date_brute = ws.cell(
+            ligne,
+            col_date,
+        ).value
+
+        if not est_date_excel(date_brute):
+            break
+
+        valeur = ws.cell(
+            ligne,
+            col_benchmark,
+        ).value
+
+        date_source = convertir_date_excel(date_brute)
+        dates.append(date_source)
+        dates_source.append(date_source)
+        donnees.append(
+            float(valeur)
+            if est_nombre(valeur)
+            else np.nan
+        )
+        ligne += 1
+
+    df = pd.DataFrame(
+        {"benchmark": donnees},
+        index=dates,
+    )
+
+    cle = f"{cle_prefixe}{ws.title}_benchmark"
+    return figer_historique(
+        df,
+        dates_source,
+        cle,
+    )
+
+
 def lire_macro_externe(
     wb_macro,
     config_macro=None,

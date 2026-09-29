@@ -200,6 +200,8 @@ CONFIG_VOLATILITE = {
     "sheet_retours": "Returns_EQ",
     "ligne_debut_retours": 7,
     "colonne_date": "P",
+    "colonne_benchmark_retours": "Q",
+    "benchmark_nom": "FTSE World Europe",
     "colonne_debut_retours": "R",
     "offset_volatilite": 6,
     "offset_downside": 18,
@@ -502,6 +504,8 @@ CONFIG_VOLATILITE_US = {
     "sheet_retours": "Returns_EQ",
     "ligne_debut_retours": 7,
     "colonne_date": "O",
+    "colonne_benchmark_retours": "P",
+    "benchmark_nom": "WIUSAU Index",
     "colonne_debut_retours": "Q",
     "offset_volatilite": 6,
     "offset_downside": 18,
@@ -625,4 +629,5 @@ MODELE_US = {
     "piliers_rate_overlay": PILIERS_RATE_OVERLAY_US,
     "variables_backtest": VARIABLES_BACKTEST_US,
 }
+
 

@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from data_io import (
+    lire_benchmark_retours,
     lire_bloc_retours,
     lire_dates_et_bloc,
     lire_macro_externe,
@@ -892,6 +893,11 @@ def executer_modele(wb_secteur, wb_macro, config):
         wb_secteur,
         config,
     )
+    benchmark_retours = lire_benchmark_retours(
+        wb_secteur[config["volatilite"]["sheet_retours"]],
+        config_volatilite=config["volatilite"],
+        cle_prefixe=config["historique_prefixe"],
+    )
 
     piliers["Momentum"] = momentum
     piliers["Volatility"] = volatility
@@ -922,6 +928,7 @@ def executer_modele(wb_secteur, wb_macro, config):
         "rangs": rangs,
         "sous_scores": sous_scores,
         "retours": retours,
+        "benchmark_retours": benchmark_retours,
         "contexte_macro": contexte_macro,
     }
 

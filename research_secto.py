@@ -27,6 +27,7 @@ def preparer_retour_futur(retours):
 def backtester_score(
     score,
     retours_futurs,
+    benchmark_futur=None,
     top_n=3,
     start=None,
     end=None,
@@ -61,6 +62,13 @@ def backtester_score(
 
         ret_top = r.loc[top].mean()
         ret_worst = r.loc[worst].mean()
+        ret_benchmark = np.nan
+
+        if (
+            benchmark_futur is not None
+            and date in benchmark_futur.index
+        ):
+            ret_benchmark = benchmark_futur.loc[date]
 
         lignes.append(
             {
@@ -68,6 +76,7 @@ def backtester_score(
                 "return_top": ret_top,
                 "return_worst": ret_worst,
                 "return_long_short": ret_top - ret_worst,
+                "return_benchmark": ret_benchmark,
                 "top_sectors": " | ".join(top),
                 "worst_sectors": " | ".join(worst),
             }
@@ -464,6 +473,7 @@ class RechercheSectorielle:
         start=None,
         end=None,
         avec_plot=True,
+        series_plot=None,
         figsize=(10, 6),
     ):
         """Backteste les variables sélectionnées et, si demandé, le pilier final."""
@@ -487,6 +497,9 @@ class RechercheSectorielle:
         retours_futurs = preparer_retour_futur(
             resultats["retours"]
         )
+        benchmark_futur = preparer_retour_futur(
+            resultats["benchmark_retours"]
+        )["benchmark"]
 
         scores = {
             variable: resultats["sous_scores"][variable]
@@ -505,6 +518,7 @@ class RechercheSectorielle:
             bt = backtester_score(
                 score,
                 retours_futurs,
+                benchmark_futur=benchmark_futur,
                 top_n=top_n,
                 start=start,
                 end=end,
@@ -529,26 +543,96 @@ class RechercheSectorielle:
         ax = None
 
         if avec_plot:
+            if series_plot is None:
+                series_plot = ["top", "benchmark"]
+
+            series_plot = list(series_plot)
+            choix_valides = {
+                "top",
+                "worst",
+                "long_short",
+                "benchmark",
+            }
+            inconnues_plot = [
+                serie
+                for serie in series_plot
+                if serie not in choix_valides
+            ]
+
+            if inconnues_plot:
+                raise ValueError(
+                    f"Séries de plot inconnues : {inconnues_plot}"
+                )
+
             fig, ax = plt.subplots(figsize=figsize)
+
+            colonnes_plot = {
+                "top": ("return_top", "Top"),
+                "worst": ("return_worst", "Worst"),
+                "long_short": (
+                    "return_long_short",
+                    "Long-Short",
+                ),
+            }
 
             for nom, bt in backtests.items():
                 if bt.empty:
                     continue
 
-                serie = bt.set_index(
-                    "date_signal"
-                )["return_long_short"]
+                bt_indexe = bt.set_index("date_signal")
 
-                cumul = (1 + serie).cumprod()
+                for serie_plot in series_plot:
+                    if serie_plot == "benchmark":
+                        continue
 
-                ax.plot(
-                    cumul.index,
-                    cumul.values,
-                    label=nom,
-                )
+                    colonne, label = colonnes_plot[
+                        serie_plot
+                    ]
+                    serie = bt_indexe[colonne].dropna()
+                    cumul = (1 + serie).cumprod()
+
+                    ax.plot(
+                        cumul.index,
+                        cumul.values,
+                        label=f"{nom} - {label}",
+                    )
+
+            if "benchmark" in series_plot and backtests:
+                dates = [
+                    bt["date_signal"]
+                    for bt in backtests.values()
+                    if not bt.empty
+                ]
+
+                if dates:
+                    date_min = min(
+                        serie.min()
+                        for serie in dates
+                    )
+                    date_max = max(
+                        serie.max()
+                        for serie in dates
+                    )
+
+                    benchmark_plot = benchmark_futur[
+                        (benchmark_futur.index >= date_min)
+                        & (benchmark_futur.index <= date_max)
+                    ].dropna()
+
+                    cumul_benchmark = (
+                        1 + benchmark_plot
+                    ).cumprod()
+
+                    ax.plot(
+                        cumul_benchmark.index,
+                        cumul_benchmark.values,
+                        label=self.config[
+                            "volatilite"
+                        ]["benchmark_nom"],
+                    )
 
             ax.set_title(
-                f"{self.marche} - {pilier} : backtest Long-Short"
+                f"{self.marche} - {pilier} : backtest"
             )
             ax.set_ylabel(
                 "Valeur cumulée - base 1"
