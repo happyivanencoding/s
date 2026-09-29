@@ -136,7 +136,12 @@ def convertir_date_excel(x):
 
 def est_date_excel(x):
     """Vérifie qu'une cellule contient une date exploitable."""
-    return not pd.isna(convertir_date_excel(x))
+    date = convertir_date_excel(x)
+
+    if pd.isna(date):
+        return False
+
+    return 1980 <= date.year <= 2100
 
 
 def normaliser_date_mensuelle(x):
@@ -161,17 +166,12 @@ def normaliser_index_mensuel(df):
     return resultat.sort_index(ascending=False)
 
 
-def nom_fichier_historique(cle):
-    """Construit le nom du fichier utilisé pour figer une série."""
-    caracteres = []
-
-    for caractere in cle:
-        if caractere.isalnum() or caractere in {"_", "-"}:
-            caracteres.append(caractere)
-        else:
-            caracteres.append("_")
-
-    return "".join(caracteres) + ".csv"
+def chemin_historique():
+    """Retourne le fichier Parquet qui contient tout l'historique."""
+    return (
+        Path(__file__).resolve().parent
+        / CONFIG_HISTORIQUE["fichier"]
+    )
 
 
 def figer_historique(df, dates_source, cle):
@@ -199,61 +199,80 @@ def figer_historique(df, dates_source, cle):
         "date_source",
         dates_source.reindex(courant.index).values,
     )
-    courant.index.name = "date"
+    courant.insert(0, "date", courant.index)
+    courant.insert(0, "series_key", cle)
+    courant = courant.reset_index(drop=True)
+
+    colonnes_donnees = list(df.columns)
+    courant = courant[
+        courant[colonnes_donnees]
+        .notna()
+        .any(axis=1)
+    ]
 
     if not CONFIG_HISTORIQUE.get("actif", True):
         return resultat
 
-    dossier = (
-        Path(__file__).resolve().parent
-        / CONFIG_HISTORIQUE["dossier"]
-    )
-    dossier.mkdir(parents=True, exist_ok=True)
-
-    fichier = dossier / nom_fichier_historique(cle)
+    fichier = chemin_historique()
 
     if fichier.exists():
-        historique = pd.read_csv(
-            fichier,
-            index_col="date",
-            parse_dates=["date", "date_source"],
+        historique = pd.read_parquet(fichier)
+        historique["date"] = pd.to_datetime(
+            historique["date"]
         )
-        historique.index = pd.DatetimeIndex(
-            [
-                normaliser_date_mensuelle(x)
-                for x in historique.index
-            ]
+        historique["date_source"] = pd.to_datetime(
+            historique["date_source"]
         )
-        historique = historique[
-            ~historique.index.duplicated(keep="first")
+
+        dates_existantes = historique.loc[
+            historique["series_key"] == cle,
+            "date",
         ]
 
         nouveaux_mois = courant.loc[
-            ~courant.index.isin(historique.index)
+            ~courant["date"].isin(dates_existantes)
         ]
 
-        combine = pd.concat(
-            [historique, nouveaux_mois],
-            axis=0,
-            sort=False,
-        )
+        if len(nouveaux_mois):
+            historique = pd.concat(
+                [historique, nouveaux_mois],
+                ignore_index=True,
+                sort=False,
+            )
+            historique = historique.sort_values(
+                ["series_key", "date"],
+                ascending=[True, False],
+            )
+            historique.to_parquet(
+                fichier,
+                index=False,
+            )
     else:
-        combine = courant
+        historique = courant.sort_values(
+            ["series_key", "date"],
+            ascending=[True, False],
+        )
+        historique.to_parquet(
+            fichier,
+            index=False,
+        )
 
-    combine = combine.sort_index(ascending=False)
-    combine.index.name = "date"
-    combine.to_csv(
-        fichier,
-        date_format="%Y-%m-%d",
-    )
+    serie = historique[
+        historique["series_key"] == cle
+    ].copy()
+
+    serie = serie.sort_values(
+        "date",
+        ascending=False,
+    ).set_index("date")
 
     colonnes = list(df.columns)
 
     for colonne in colonnes:
-        if colonne not in combine.columns:
-            combine[colonne] = np.nan
+        if colonne not in serie.columns:
+            serie[colonne] = np.nan
 
-    return combine[colonnes].copy()
+    return serie[colonnes].copy()
 
 
 def lire_dates_et_bloc(

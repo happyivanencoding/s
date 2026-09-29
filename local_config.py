@@ -7,7 +7,7 @@ FICHIER_EXCEL_MACRO = ""
 
 CONFIG_HISTORIQUE = {
     "actif": True,
-    "dossier": "data_history",
+    "fichier": "data_history.parquet",
 }
 
 SECTEURS = [
