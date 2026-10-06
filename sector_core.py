@@ -943,23 +943,18 @@ def executer_modele(wb_secteur, wb_macro, config):
     }
 
 
-def sauvegarder_sorties(resultats, dossier_sortie, config):
-    """Sauvegarde les fichiers CSV du marché."""
+def sauvegarder_production(resultats, dossier_sortie, config):
+    """Sauvegarde uniquement les sorties courantes du modèle."""
     dossier = Path(dossier_sortie)
     dossier.mkdir(parents=True, exist_ok=True)
 
     prefixe = config["prefixe_sortie"]
-    historique = resultats["history"].copy()
-
-    historique.to_csv(
-        dossier / f"{prefixe}_historique_modele.csv",
-        index=False,
-    )
-
+    historique = resultats["history"]
     piliers = resultats["pillars"]
     rangs = resultats["ranks"]
 
     dates_piliers = None
+
     for df in piliers.values():
         dates_piliers = (
             df.index
@@ -988,7 +983,8 @@ def sauvegarder_sorties(resultats, dossier_sortie, config):
             lignes.append(ligne)
 
         pd.DataFrame(lignes).to_csv(
-            dossier / f"{prefixe}_piliers_latest_available.csv",
+            dossier
+            / f"{prefixe}_piliers_latest_available.csv",
             index=False,
         )
 
@@ -1005,7 +1001,8 @@ def sauvegarder_sorties(resultats, dossier_sortie, config):
     )
 
     latest.to_csv(
-        dossier / f"{prefixe}_recommandations_latest.csv",
+        dossier
+        / f"{prefixe}_recommandations_latest.csv",
         index=False,
     )
 
@@ -1026,8 +1023,28 @@ def sauvegarder_sorties(resultats, dossier_sortie, config):
     ]
 
     latest[colonnes].to_csv(
-        dossier / f"{prefixe}_piliers_latest_with_reco.csv",
+        dossier
+        / f"{prefixe}_piliers_latest_with_reco.csv",
         index=False,
+    )
+
+
+def sauvegarder_sorties(resultats, dossier_sortie, config):
+    """Sauvegarde l'historique complet et les sorties courantes."""
+    dossier = Path(dossier_sortie)
+    dossier.mkdir(parents=True, exist_ok=True)
+
+    prefixe = config["prefixe_sortie"]
+
+    resultats["history"].to_csv(
+        dossier / f"{prefixe}_historique_modele.csv",
+        index=False,
+    )
+
+    sauvegarder_production(
+        resultats,
+        dossier,
+        config,
     )
 
 

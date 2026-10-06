@@ -360,6 +360,23 @@ class SectorModel:
             .reset_index(drop=True)
         )
 
+    def run_production(
+        self,
+        output_dir="output",
+        force=True,
+    ):
+        """Exécute le modèle et sauvegarde uniquement les sorties courantes."""
+        results = self.run(force=force)
+
+        core.sauvegarder_production(
+            results,
+            Path(output_dir),
+            self.config,
+        )
+        core.afficher_latest(results)
+
+        return results
+
     def save_outputs(self, output_dir="output"):
         """Sauvegarde les sorties du modèle."""
         results = self._ensure_results()
