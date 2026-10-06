@@ -285,6 +285,19 @@ COMPOSITION_PILIERS = {
         "default": ["eps_growth", "sales_growth", "ebitda_growth"],
         "par_secteur": {"Fin": ["eps_growth", "sales_growth"]},
     },
+    "Momentum": {
+        "default": [
+            "momentum_6m_1m",
+            "momentum_12m_1m",
+            "earnings_revision_ratio",
+        ],
+    },
+    "Volatility": {
+        "default": [
+            "volatility_6m",
+            "downside_volatility_18m",
+        ],
+    },
 }
 
 POIDS_GLOBAL_MACRO = {
@@ -483,6 +496,19 @@ COMPOSITION_PILIERS_US = {
     "Growth": {
         "default": ["cash_flow_growth", "ebitda_growth"],
         "par_secteur": {"Fin": ["eps_growth", "sales_growth"]},
+    },
+    "Momentum": {
+        "default": [
+            "momentum_6m_1m",
+            "momentum_12m_1m",
+            "earnings_revision_ratio",
+        ],
+    },
+    "Volatility": {
+        "default": [
+            "volatility_6m",
+            "downside_volatility_18m",
+        ],
     },
 }
 

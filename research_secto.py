@@ -8,34 +8,26 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from local_config import MODELE_EU, MODELE_US
-import model_secto_eu
-import model_secto_us
+from model_secto import SectorModel
 
 
-MARCHES = {
-    "EU": (MODELE_EU, model_secto_eu),
-    "US": (MODELE_US, model_secto_us),
-}
-
-
-def preparer_returns_futurs(returns):
+def prepare_forward_returns(returns):
     """Aligne le rendement du mois suivant avec le signal courant."""
     return returns.sort_index().shift(-1)
 
 
-def backtester_score(
+def backtest_score(
     score,
-    returns_futurs,
-    benchmark_futur=None,
+    forward_returns,
+    benchmark_returns=None,
     top_n=3,
     start=None,
     end=None,
 ):
-    """Backtest égal-pondéré d'un score sectoriel."""
+    """Backteste un score sectoriel en pondération égale."""
     score = score.sort_index()
     dates = score.index.intersection(
-        returns_futurs.index
+        forward_returns.index
     ).sort_values()
 
     if start:
@@ -44,45 +36,53 @@ def backtester_score(
     if end:
         dates = dates[dates <= pd.Timestamp(end)]
 
-    lignes = []
+    rows = []
 
     for date in dates:
-        s = score.loc[date].dropna()
-        r = returns_futurs.loc[date].dropna()
+        signal = score.loc[date].dropna()
+        returns = forward_returns.loc[date].dropna()
 
-        communs = s.index.intersection(r.index)
-        s = s.loc[communs]
-        r = r.loc[communs]
+        sectors = signal.index.intersection(
+            returns.index
+        )
+        signal = signal.loc[sectors]
+        returns = returns.loc[sectors]
 
-        if len(s) < 2 * top_n:
+        if len(signal) < 2 * top_n:
             continue
 
-        top = list(s.nlargest(top_n).index)
-        worst = list(s.nsmallest(top_n).index)
+        top = list(
+            signal.nlargest(top_n).index
+        )
+        worst = list(
+            signal.nsmallest(top_n).index
+        )
 
-        ret_top = r.loc[top].mean()
-        ret_worst = r.loc[worst].mean()
-        ret_benchmark = np.nan
+        return_top = returns.loc[top].mean()
+        return_worst = returns.loc[worst].mean()
+        return_benchmark = np.nan
 
         if (
-            benchmark_futur is not None
-            and date in benchmark_futur.index
+            benchmark_returns is not None
+            and date in benchmark_returns.index
         ):
-            ret_benchmark = benchmark_futur.loc[date]
+            return_benchmark = benchmark_returns.loc[date]
 
-        lignes.append(
+        rows.append(
             {
                 "date_signal": date,
-                "return_top": ret_top,
-                "return_worst": ret_worst,
-                "return_long_short": ret_top - ret_worst,
-                "return_benchmark": ret_benchmark,
+                "return_top": return_top,
+                "return_worst": return_worst,
+                "return_long_short": (
+                    return_top - return_worst
+                ),
+                "return_benchmark": return_benchmark,
                 "top_sectors": " | ".join(top),
                 "worst_sectors": " | ".join(worst),
             }
         )
 
-    return pd.DataFrame(lignes)
+    return pd.DataFrame(rows)
 
 
 def max_drawdown(returns):
@@ -90,13 +90,19 @@ def max_drawdown(returns):
     if len(returns) == 0:
         return np.nan
 
-    wealth = (1 + returns.fillna(0)).cumprod()
-    drawdown = wealth / wealth.cummax() - 1
+    wealth = (
+        1 + returns.fillna(0)
+    ).cumprod()
+    drawdown = (
+        wealth
+        / wealth.cummax()
+        - 1
+    )
 
     return drawdown.min()
 
 
-def statistiques(backtest):
+def statistics(backtest):
     """Calcule les statistiques principales du backtest."""
     if backtest.empty:
         return {
@@ -111,110 +117,106 @@ def statistiques(backtest):
             "max_drawdown_ls": np.nan,
         }
 
-    top = backtest["return_top"].dropna()
-    ls = backtest["return_long_short"].dropna()
+    top = backtest[
+        "return_top"
+    ].dropna()
+    long_short = backtest[
+        "return_long_short"
+    ].dropna()
 
-    def ann_return(x):
-        if len(x) == 0:
+    def annual_return(series):
+        if len(series) == 0:
             return np.nan
-        return (1 + x).prod() ** (12 / len(x)) - 1
 
-    def ann_vol(x):
-        if len(x) < 2:
+        return (
+            (1 + series).prod()
+            ** (12 / len(series))
+            - 1
+        )
+
+    def annual_volatility(series):
+        if len(series) < 2:
             return np.nan
-        return x.std(ddof=1) * math.sqrt(12)
 
-    vol_top = ann_vol(top)
-    vol_ls = ann_vol(ls)
+        return (
+            series.std(ddof=1)
+            * math.sqrt(12)
+        )
+
+    top_volatility = annual_volatility(top)
+    long_short_volatility = annual_volatility(
+        long_short
+    )
 
     return {
         "n_months": len(backtest),
-        "ann_return_top": ann_return(top),
-        "ann_vol_top": vol_top,
+        "ann_return_top": annual_return(top),
+        "ann_vol_top": top_volatility,
         "sharpe_top": (
-            top.mean() * 12 / vol_top
-            if vol_top and vol_top > 0
+            top.mean() * 12 / top_volatility
+            if top_volatility and top_volatility > 0
             else np.nan
         ),
-        "ann_return_ls": ann_return(ls),
-        "ann_vol_ls": vol_ls,
+        "ann_return_ls": annual_return(long_short),
+        "ann_vol_ls": long_short_volatility,
         "sharpe_ls": (
-            ls.mean() * 12 / vol_ls
-            if vol_ls and vol_ls > 0
+            long_short.mean()
+            * 12
+            / long_short_volatility
+            if (
+                long_short_volatility
+                and long_short_volatility > 0
+            )
             else np.nan
         ),
         "win_rate_ls": (
-            (ls > 0).mean()
-            if len(ls)
+            (long_short > 0).mean()
+            if len(long_short)
             else np.nan
         ),
-        "max_drawdown_ls": max_drawdown(ls),
+        "max_drawdown_ls": max_drawdown(
+            long_short
+        ),
     }
 
 
-class RechercheSectorielle:
-    """Charge un marché une fois puis permet de lancer plots et backtests."""
+class SectorResearch:
+    """Fournit les visualisations et backtests d'un SectorModel."""
 
-    def __init__(
-        self,
-        marche="EU",
-        fichier_excel=None,
-        fichier_macro=None,
-    ):
-        marche = marche.upper()
-
-        if marche not in MARCHES:
-            raise ValueError("Le marché doit être EU ou US.")
-
-        self.marche = marche
-        self.config, self.modele = MARCHES[marche]
-        self.fichier_excel = fichier_excel
-        self.fichier_macro = fichier_macro
-        self.resultats = None
-
-    def charger(self, forcer=False):
-        """Calcule le modèle une seule fois et conserve les résultats en mémoire."""
-        if self.resultats is None or forcer:
-            self.resultats = self.modele.calculer_modele(
-                self.fichier_excel,
-                fichier_macro=self.fichier_macro,
+    def __init__(self, model):
+        if not isinstance(model, SectorModel):
+            raise TypeError(
+                "model must be a SectorModel."
             )
 
+        self.model = model
+        self.universe = model.universe
+        self.config = model.config
+
+    def load(self, force=False):
+        """Exécute le modèle et conserve les résultats en mémoire."""
+        self.model.run(force=force)
         return self
 
-    def variables_disponibles(self, pilier=None):
-        """Retourne les variables disponibles pour un pilier ou pour tous."""
-        groupes = self.config["variables_backtest"]
+    def variables(self, pillar=None):
+        """Retourne les variables actives du modèle."""
+        return self.model.variables(pillar)
 
-        if pilier is None:
-            return {
-                nom: variables.copy()
-                for nom, variables in groupes.items()
-            }
+    def _results(self):
+        return self.model.run()
 
-        if pilier not in groupes:
-            raise ValueError(
-                f"Pilier inconnu : {pilier}"
-            )
-
-        return groupes[pilier].copy()
-
-    def _resultats(self):
-        if self.resultats is None:
-            self.charger()
-
-        return self.resultats
-
-    def _date_piliers(self, date=None):
-        """Choisit une date disponible commune aux piliers."""
-        piliers = self._resultats()["piliers"]
+    def _pillar_date(self, date=None):
+        """Choisit une date commune disponible pour les piliers."""
+        pillars = self._results()["pillars"]
         dates = None
 
-        for df in piliers.values():
+        for score in pillars.values():
             dates = (
-                df.index
+                score.index
                 if dates is None
-                else dates.intersection(df.index)
+                else dates.intersection(
+                    score.index
+                )
             )
 
         dates = dates.sort_values()
@@ -227,202 +229,248 @@ class RechercheSectorielle:
         if date is None:
             return dates[-1]
 
-        cible = (
+        target = (
             pd.Timestamp(date)
             .to_period("M")
             .to_timestamp("M")
         )
-        dates_avant = dates[dates <= cible]
+        available = dates[dates <= target]
 
-        if len(dates_avant) == 0:
+        if len(available) == 0:
             raise ValueError(
-                f"Aucune date disponible avant {cible.date()}."
+                f"Aucune date disponible avant "
+                f"{target.date()}."
             )
 
-        return dates_avant[-1]
+        return available[-1]
 
-    def plot_piliers(
+    def plot_pillars(
         self,
         date=None,
-        piliers=None,
+        pillars=None,
         figsize=(10, 7),
     ):
         """Affiche les scores des piliers par secteur."""
-        resultats = self._resultats()
-        date = self._date_piliers(date)
+        results = self._results()
+        date = self._pillar_date(date)
 
-        if piliers is None:
-            piliers = list(self.config["poids_base"])
-
-        inconnus = [
-            p
-            for p in piliers
-            if p not in resultats["piliers"]
-        ]
-
-        if inconnus:
-            raise ValueError(
-                f"Piliers inconnus : {inconnus}"
+        if pillars is None:
+            pillars = list(
+                self.config["poids_base"]
             )
 
-        secteurs = self.config["secteurs"]
-        matrice = np.array(
+        unknown = [
+            pillar
+            for pillar in pillars
+            if pillar not in results["pillars"]
+        ]
+
+        if unknown:
+            raise ValueError(
+                f"Piliers inconnus : {unknown}"
+            )
+
+        sectors = self.config["secteurs"]
+        matrix = np.array(
             [
                 [
-                    resultats["piliers"][p].at[date, s]
-                    for p in piliers
+                    results["pillars"][pillar].at[
+                        date,
+                        sector,
+                    ]
+                    for pillar in pillars
                 ]
-                for s in secteurs
+                for sector in sectors
             ],
             dtype=float,
         )
 
-        vmax = max(10, np.nanmax(matrice))
+        vmax = max(
+            10,
+            np.nanmax(matrix),
+        )
 
-        fig, ax = plt.subplots(figsize=figsize)
+        fig, ax = plt.subplots(
+            figsize=figsize
+        )
         image = ax.imshow(
-            matrice,
+            matrix,
             aspect="auto",
             vmin=0,
             vmax=vmax,
         )
 
-        ax.set_xticks(range(len(piliers)))
-        ax.set_xticklabels(piliers)
-        ax.set_yticks(range(len(secteurs)))
-        ax.set_yticklabels(secteurs)
+        ax.set_xticks(
+            range(len(pillars))
+        )
+        ax.set_xticklabels(
+            pillars
+        )
+        ax.set_yticks(
+            range(len(sectors))
+        )
+        ax.set_yticklabels(
+            sectors
+        )
         ax.set_title(
-            f"{self.marche} - Scores des piliers au {date.date()}"
+            f"{self.universe} - Scores des piliers "
+            f"au {date.date()}"
         )
 
-        for i in range(len(secteurs)):
-            for j in range(len(piliers)):
-                valeur = matrice[i, j]
-                texte = (
+        for i in range(len(sectors)):
+            for j in range(len(pillars)):
+                value = matrix[i, j]
+                label = (
                     "-"
-                    if np.isnan(valeur)
-                    else f"{valeur:.1f}"
+                    if np.isnan(value)
+                    else f"{value:.1f}"
                 )
                 ax.text(
                     j,
                     i,
-                    texte,
+                    label,
                     ha="center",
                     va="center",
                     fontsize=8,
                 )
 
-        fig.colorbar(image, ax=ax, label="Score")
+        fig.colorbar(
+            image,
+            ax=ax,
+            label="Score",
+        )
         fig.tight_layout()
 
         return fig, ax
 
     def plot_variables(
         self,
-        pilier,
+        pillar,
         variables=None,
         date=None,
         figsize=(9, 7),
     ):
-        """Affiche les sous-variables sélectionnées d'un pilier."""
-        resultats = self._resultats()
-        date = self._date_piliers(date)
+        """Affiche les variables sélectionnées d'un pilier."""
+        results = self._results()
+        date = self._pillar_date(date)
 
-        disponibles = self.variables_disponibles(pilier)
+        active = self.variables(pillar)
 
         if variables is None:
-            variables = disponibles
+            variables = active
 
-        inconnues = [
-            v
-            for v in variables
-            if v not in disponibles
+        unknown = [
+            variable
+            for variable in variables
+            if variable not in active
         ]
 
-        if inconnues:
+        if unknown:
             raise ValueError(
-                f"Variables inconnues pour {pilier} : {inconnues}"
+                f"Variables inconnues pour "
+                f"{pillar} : {unknown}"
             )
 
-        secteurs = self.config["secteurs"]
-        matrice = []
+        sectors = self.config["secteurs"]
+        matrix = []
 
-        for secteur in secteurs:
-            ligne = []
+        for sector in sectors:
+            row = []
 
             for variable in variables:
-                df = resultats["sous_scores"][variable]
-                ligne.append(
-                    df.at[date, secteur]
-                    if date in df.index
+                score = results[
+                    "variable_scores"
+                ][variable]
+
+                row.append(
+                    score.at[date, sector]
+                    if date in score.index
                     else np.nan
                 )
 
-            matrice.append(ligne)
+            matrix.append(row)
 
-        matrice = np.array(
-            matrice,
+        matrix = np.array(
+            matrix,
             dtype=float,
         )
-        vmax = max(10, np.nanmax(matrice))
+        vmax = max(
+            10,
+            np.nanmax(matrix),
+        )
 
-        fig, ax = plt.subplots(figsize=figsize)
+        fig, ax = plt.subplots(
+            figsize=figsize
+        )
         image = ax.imshow(
-            matrice,
+            matrix,
             aspect="auto",
             vmin=0,
             vmax=vmax,
         )
 
-        ax.set_xticks(range(len(variables)))
+        ax.set_xticks(
+            range(len(variables))
+        )
         ax.set_xticklabels(
             variables,
             rotation=20,
             ha="right",
         )
-        ax.set_yticks(range(len(secteurs)))
-        ax.set_yticklabels(secteurs)
+        ax.set_yticks(
+            range(len(sectors))
+        )
+        ax.set_yticklabels(
+            sectors
+        )
         ax.set_title(
-            f"{self.marche} - {pilier} au {date.date()}"
+            f"{self.universe} - {pillar} "
+            f"au {date.date()}"
         )
 
-        for i in range(len(secteurs)):
+        for i in range(len(sectors)):
             for j in range(len(variables)):
-                valeur = matrice[i, j]
-                texte = (
+                value = matrix[i, j]
+                label = (
                     "-"
-                    if np.isnan(valeur)
-                    else f"{valeur:.1f}"
+                    if np.isnan(value)
+                    else f"{value:.1f}"
                 )
                 ax.text(
                     j,
                     i,
-                    texte,
+                    label,
                     ha="center",
                     va="center",
                     fontsize=8,
                 )
 
-        fig.colorbar(image, ax=ax, label="Score")
+        fig.colorbar(
+            image,
+            ax=ax,
+            label="Score",
+        )
         fig.tight_layout()
 
         return fig, ax
 
-    def plot_rang_global(
+    def plot_global_rank(
         self,
         date=None,
         figsize=(9, 6),
     ):
         """Affiche le rang global pour une date de recommandation."""
-        historique = self._resultats()["historique"]
+        history = self._results()[
+            "history"
+        ]
 
-        if historique.empty:
+        if history.empty:
             raise ValueError(
                 "Aucune recommandation finale disponible."
             )
 
         dates = (
-            historique["date"]
+            history["date"]
             .drop_duplicates()
             .sort_values()
         )
@@ -430,35 +478,43 @@ class RechercheSectorielle:
         if date is None:
             date = dates.iloc[-1]
         else:
-            cible = (
+            target = (
                 pd.Timestamp(date)
                 .to_period("M")
                 .to_timestamp("M")
             )
-            possibles = dates[dates <= cible]
+            available = dates[
+                dates <= target
+            ]
 
-            if len(possibles) == 0:
+            if len(available) == 0:
                 raise ValueError(
-                    f"Aucune recommandation avant {cible.date()}."
+                    f"Aucune recommandation avant "
+                    f"{target.date()}."
                 )
 
-            date = possibles.iloc[-1]
+            date = available.iloc[-1]
 
-        ligne = historique[
-            historique["date"] == date
-        ].sort_values("rang_global")
+        row = history[
+            history["date"] == date
+        ].sort_values(
+            "rang_global"
+        )
 
-        fig, ax = plt.subplots(figsize=figsize)
+        fig, ax = plt.subplots(
+            figsize=figsize
+        )
         ax.barh(
-            ligne["secteur"],
-            ligne["rang_global"],
+            row["secteur"],
+            row["rang_global"],
         )
         ax.set_xlabel(
             f"Rang final - 1 = Worst, "
             f"{len(self.config['secteurs'])} = Best"
         )
         ax.set_title(
-            f"{self.marche} - Rang final au {date.date()}"
+            f"{self.universe} - Rang final "
+            f"au {date.date()}"
         )
         fig.tight_layout()
 
@@ -466,72 +522,83 @@ class RechercheSectorielle:
 
     def backtest(
         self,
-        pilier,
+        pillar,
         variables=None,
-        inclure_pilier=True,
+        include_pillar=True,
         top_n=3,
         start=None,
         end=None,
-        avec_plot=True,
-        series_plot=None,
+        with_plot=True,
+        plot_series=None,
         figsize=(10, 6),
     ):
-        """Backteste les variables sélectionnées et, si demandé, le pilier final."""
-        resultats = self._resultats()
-        disponibles = self.variables_disponibles(pilier)
+        """Backteste les variables sélectionnées et le pilier final."""
+        results = self._results()
+        active = self.variables(pillar)
 
         if variables is None:
-            variables = disponibles
+            variables = active
 
-        inconnues = [
-            v
-            for v in variables
-            if v not in disponibles
+        unknown = [
+            variable
+            for variable in variables
+            if variable not in active
         ]
 
-        if inconnues:
+        if unknown:
             raise ValueError(
-                f"Variables inconnues pour {pilier} : {inconnues}"
+                f"Variables inconnues pour "
+                f"{pillar} : {unknown}"
             )
 
-        returns_futurs = preparer_returns_futurs(
-            resultats["returns"]
+        forward_returns = prepare_forward_returns(
+            results["returns"]
         )
-        benchmark_futur = preparer_returns_futurs(
-            resultats["benchmark_returns"]
-        )["benchmark"]
+        benchmark_returns = (
+            prepare_forward_returns(
+                results["benchmark_returns"]
+            )["benchmark"]
+        )
 
         scores = {
-            variable: resultats["sous_scores"][variable]
+            variable: results[
+                "variable_scores"
+            ][variable]
             for variable in variables
         }
 
-        if inclure_pilier:
-            scores[f"{pilier}_total"] = (
-                resultats["piliers"][pilier]
+        if include_pillar:
+            scores[f"{pillar}_total"] = (
+                results["pillars"][pillar]
             )
 
-        stats = []
+        rows = []
         backtests = {}
 
-        for nom, score in scores.items():
-            bt = backtester_score(
+        for name, score in scores.items():
+            backtest = backtest_score(
                 score,
-                returns_futurs,
-                benchmark_futur=benchmark_futur,
+                forward_returns,
+                benchmark_returns=(
+                    benchmark_returns
+                ),
                 top_n=top_n,
                 start=start,
                 end=end,
             )
 
-            backtests[nom] = bt
+            backtests[name] = backtest
 
-            ligne = {"variable": nom}
-            ligne.update(statistiques(bt))
-            stats.append(ligne)
+            row = {
+                "variable": name
+            }
+            row.update(
+                statistics(backtest)
+            )
+            rows.append(row)
 
-        resume = (
-            pd.DataFrame(stats)
+        summary = (
+            pd.DataFrame(rows)
             .sort_values(
                 "sharpe_ls",
                 ascending=False,
@@ -542,97 +609,129 @@ class RechercheSectorielle:
         fig = None
         ax = None
 
-        if avec_plot:
-            if series_plot is None:
-                series_plot = ["top", "benchmark"]
+        if with_plot:
+            if plot_series is None:
+                plot_series = [
+                    "top",
+                    "benchmark",
+                ]
 
-            series_plot = list(series_plot)
-            choix_valides = {
+            plot_series = list(
+                plot_series
+            )
+            valid_series = {
                 "top",
                 "worst",
                 "long_short",
                 "benchmark",
             }
-            inconnues_plot = [
-                serie
-                for serie in series_plot
-                if serie not in choix_valides
+            unknown_series = [
+                name
+                for name in plot_series
+                if name not in valid_series
             ]
 
-            if inconnues_plot:
+            if unknown_series:
                 raise ValueError(
-                    f"Séries de plot inconnues : {inconnues_plot}"
+                    f"Séries de plot inconnues : "
+                    f"{unknown_series}"
                 )
 
-            fig, ax = plt.subplots(figsize=figsize)
+            fig, ax = plt.subplots(
+                figsize=figsize
+            )
 
-            colonnes_plot = {
-                "top": ("return_top", "Top"),
-                "worst": ("return_worst", "Worst"),
+            columns = {
+                "top": (
+                    "return_top",
+                    "Top",
+                ),
+                "worst": (
+                    "return_worst",
+                    "Worst",
+                ),
                 "long_short": (
                     "return_long_short",
                     "Long-Short",
                 ),
             }
 
-            for nom, bt in backtests.items():
-                if bt.empty:
+            for name, backtest in backtests.items():
+                if backtest.empty:
                     continue
 
-                bt_indexe = bt.set_index("date_signal")
+                indexed = backtest.set_index(
+                    "date_signal"
+                )
 
-                for serie_plot in series_plot:
-                    if serie_plot == "benchmark":
+                for series_name in plot_series:
+                    if series_name == "benchmark":
                         continue
 
-                    colonne, label = colonnes_plot[
-                        serie_plot
+                    column, label = columns[
+                        series_name
                     ]
-                    serie = bt_indexe[colonne].dropna()
-                    cumul = (1 + serie).cumprod()
-
-                    ax.plot(
-                        cumul.index,
-                        cumul.values,
-                        label=f"{nom} - {label}",
-                    )
-
-            if "benchmark" in series_plot and backtests:
-                dates = [
-                    bt["date_signal"]
-                    for bt in backtests.values()
-                    if not bt.empty
-                ]
-
-                if dates:
-                    date_min = min(
-                        serie.min()
-                        for serie in dates
-                    )
-                    date_max = max(
-                        serie.max()
-                        for serie in dates
-                    )
-
-                    benchmark_plot = benchmark_futur[
-                        (benchmark_futur.index >= date_min)
-                        & (benchmark_futur.index <= date_max)
+                    series = indexed[
+                        column
                     ].dropna()
-
-                    cumul_benchmark = (
-                        1 + benchmark_plot
+                    cumulative = (
+                        1 + series
                     ).cumprod()
 
                     ax.plot(
-                        cumul_benchmark.index,
-                        cumul_benchmark.values,
+                        cumulative.index,
+                        cumulative.values,
+                        label=(
+                            f"{name} - {label}"
+                        ),
+                    )
+
+            if (
+                "benchmark" in plot_series
+                and backtests
+            ):
+                date_series = [
+                    backtest["date_signal"]
+                    for backtest in backtests.values()
+                    if not backtest.empty
+                ]
+
+                if date_series:
+                    date_min = min(
+                        series.min()
+                        for series in date_series
+                    )
+                    date_max = max(
+                        series.max()
+                        for series in date_series
+                    )
+
+                    benchmark = benchmark_returns[
+                        (
+                            benchmark_returns.index
+                            >= date_min
+                        )
+                        & (
+                            benchmark_returns.index
+                            <= date_max
+                        )
+                    ].dropna()
+
+                    cumulative = (
+                        1 + benchmark
+                    ).cumprod()
+
+                    ax.plot(
+                        cumulative.index,
+                        cumulative.values,
                         label=self.config[
                             "volatilite"
                         ]["benchmark_nom"],
                     )
 
             ax.set_title(
-                f"{self.marche} - {pilier} : backtest"
+                f"{self.universe} - "
+                f"{pillar} : backtest"
             )
             ax.set_ylabel(
                 "Valeur cumulée - base 1"
@@ -641,36 +740,47 @@ class RechercheSectorielle:
             ax.grid(alpha=0.2)
             fig.tight_layout()
 
-        return resume, backtests, fig, ax
+        return (
+            summary,
+            backtests,
+            fig,
+            ax,
+        )
 
-    def sauvegarder_backtest(
+    def save_backtest(
         self,
-        resume,
+        summary,
         backtests,
-        pilier,
-        dossier="output/backtests",
+        pillar,
+        output_dir="output/backtests",
     ):
         """Sauvegarde un backtest déjà calculé."""
-        dossier = Path(dossier)
-        dossier.mkdir(
+        output_dir = Path(output_dir)
+        output_dir.mkdir(
             parents=True,
             exist_ok=True,
         )
 
-        prefixe = self.config["prefixe_sortie"]
+        prefix = self.config[
+            "prefixe_sortie"
+        ]
 
-        resume.to_csv(
-            dossier
-            / f"{prefixe}_{pilier.lower()}_summary.csv",
+        summary.to_csv(
+            output_dir
+            / (
+                f"{prefix}_"
+                f"{pillar.lower()}_summary.csv"
+            ),
             index=False,
         )
 
-        for nom, bt in backtests.items():
-            bt.to_csv(
-                dossier
+        for name, backtest in backtests.items():
+            backtest.to_csv(
+                output_dir
                 / (
-                    f"{prefixe}_{pilier.lower()}_"
-                    f"{nom}_monthly.csv"
+                    f"{prefix}_"
+                    f"{pillar.lower()}_"
+                    f"{name}_monthly.csv"
                 ),
                 index=False,
             )

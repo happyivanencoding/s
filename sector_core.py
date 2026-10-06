@@ -274,6 +274,58 @@ def calculer_variable_historique(raw, config_variable, fenetre_historique):
     return score
 
 
+def compose_pillar(scores, config, pillar):
+    """Agrège les sous-scores selon la composition du pilier."""
+    sectors = config["secteurs"]
+    composition = config["composition_piliers"][pillar]
+
+    dates = None
+    for score in scores.values():
+        dates = (
+            score.index
+            if dates is None
+            else dates.intersection(score.index)
+        )
+
+    if dates is None or len(dates) == 0:
+        raise ValueError(
+            f"Aucune date disponible pour le pilier {pillar}."
+        )
+
+    result = pd.DataFrame(
+        index=dates,
+        columns=sectors,
+        dtype=float,
+    )
+
+    by_sector = composition.get("par_secteur", {})
+
+    for date in dates:
+        for sector in sectors:
+            variables = by_sector.get(
+                sector,
+                composition["default"],
+            )
+            values = [
+                scores[variable].at[date, sector]
+                for variable in variables
+            ]
+
+            if any(pd.isna(value) for value in values):
+                result.at[date, sector] = np.nan
+            else:
+                result.at[date, sector] = (
+                    sum(values) / len(values)
+                )
+
+    decimals = config["arrondi_pilier"].get(pillar)
+
+    if decimals is not None:
+        result = result.round(decimals)
+
+    return result
+
+
 def calculer_piliers_historiques(wb, config):
     """Calcule Leverage, Margin, Value et Growth."""
     secteurs = config["secteurs"]
@@ -301,42 +353,11 @@ def calculer_piliers_historiques(wb, config):
             sous_scores[nom_variable] = score
             scores_du_pilier[nom_variable] = score
 
-        index_commun = next(iter(scores_du_pilier.values())).index
-        pilier_df = pd.DataFrame(
-            index=index_commun,
-            columns=secteurs,
-            dtype=float,
+        piliers[pilier] = compose_pillar(
+            scores_du_pilier,
+            config,
+            pilier,
         )
-
-        composition = config["composition_piliers"][pilier]
-
-        for date in index_commun:
-            for secteur in secteurs:
-                variables_finales = (
-                    composition.get("par_secteur", {}).get(
-                        secteur,
-                        composition["default"],
-                    )
-                )
-
-                valeurs = [
-                    scores_du_pilier[variable].at[date, secteur]
-                    for variable in variables_finales
-                ]
-
-                if any(pd.isna(v) for v in valeurs):
-                    pilier_df.at[date, secteur] = np.nan
-                else:
-                    pilier_df.at[date, secteur] = (
-                        sum(valeurs) / len(valeurs)
-                    )
-
-        arrondi = config["arrondi_pilier"].get(pilier)
-
-        if arrondi is not None:
-            pilier_df = pilier_df.round(arrondi)
-
-        piliers[pilier] = pilier_df
 
     return piliers, sous_scores
 
@@ -443,30 +464,17 @@ def calculer_momentum(wb, config):
         axis=1,
     )
 
-    momentum = pd.DataFrame(
-        index=score_court.index,
-        columns=secteurs,
-        dtype=float,
-    )
-
-    for date in momentum.index:
-        for secteur in secteurs:
-            valeurs = [
-                score_court.at[date, secteur],
-                score_long.at[date, secteur],
-                score_revision.at[date, secteur],
-            ]
-
-            if any(pd.isna(v) for v in valeurs):
-                momentum.at[date, secteur] = np.nan
-            else:
-                momentum.at[date, secteur] = sum(valeurs) / 3
-
     sous_scores = {
         "momentum_6m_1m": score_court,
         "momentum_12m_1m": score_long,
         "earnings_revision_ratio": score_revision,
     }
+
+    momentum = compose_pillar(
+        sous_scores,
+        config,
+        "Momentum",
+    )
 
     return momentum, sous_scores
 
@@ -538,14 +546,16 @@ def calculer_volatilite(wb, config):
         config["fenetre_historique"],
     )
 
-    volatility = (
-        score_total + score_downside
-    ) / 2
-
     sous_scores = {
         "volatility_6m": score_total,
         "downside_volatility_18m": score_downside,
     }
+
+    volatility = compose_pillar(
+        sous_scores,
+        config,
+        "Volatility",
+    )
 
     return volatility, sous_scores, returns
 
@@ -923,13 +933,13 @@ def executer_modele(wb_secteur, wb_macro, config):
     )
 
     return {
-        "historique": historique,
-        "piliers": piliers,
-        "rangs": rangs,
-        "sous_scores": sous_scores,
+        "history": historique,
+        "pillars": piliers,
+        "ranks": rangs,
+        "variable_scores": sous_scores,
         "returns": returns,
         "benchmark_returns": benchmark_returns,
-        "contexte_macro": contexte_macro,
+        "macro_context": contexte_macro,
     }
 
 
@@ -939,15 +949,15 @@ def sauvegarder_sorties(resultats, dossier_sortie, config):
     dossier.mkdir(parents=True, exist_ok=True)
 
     prefixe = config["prefixe_sortie"]
-    historique = resultats["historique"].copy()
+    historique = resultats["history"].copy()
 
     historique.to_csv(
         dossier / f"{prefixe}_historique_modele.csv",
         index=False,
     )
 
-    piliers = resultats["piliers"]
-    rangs = resultats["rangs"]
+    piliers = resultats["pillars"]
+    rangs = resultats["ranks"]
 
     dates_piliers = None
     for df in piliers.values():
@@ -1023,7 +1033,7 @@ def sauvegarder_sorties(resultats, dossier_sortie, config):
 
 def afficher_latest(resultats):
     """Affiche la dernière recommandation disponible."""
-    historique = resultats["historique"]
+    historique = resultats["history"]
 
     if historique.empty:
         print("Aucun résultat calculé.")
@@ -1056,7 +1066,7 @@ def afficher_latest(resultats):
     print(latest[cols].to_string(index=False))
 
     dates_piliers = None
-    for df in resultats["piliers"].values():
+    for df in resultats["pillars"].values():
         dates_piliers = (
             df.index
             if dates_piliers is None
