@@ -1,113 +1,66 @@
-# Modèle sectoriel EU / US
+# Index technique du modèle sectoriel
 
-## Structure
+## Document de référence
 
-- `local_config.py` : paramètres EU / US.
-- `data_io.py` : lecture des fichiers Excel et gestion de l'historique.
-- `sector_core.py` : calculs communs du modèle.
-- `model_secto.py` : interface principale via `SectorModel`.
-- `research_secto.py` : plots et backtests.
-- `research_secto.ipynb` : interface de recherche.
-- `audit_modele_eu.ipynb` / `audit_modele_us.ipynb` : contrôles détaillés.
+[Guide_production_modele_sectoriel.docx](docs/Guide_production_modele_sectoriel.docx)
 
-## Production mensuelle
+| Partie | Contenu |
+| --- | --- |
+| Page 1 | Structure du projet et vue d'ensemble du pipeline |
+| Pages 2 à 6 | Préparation, lancement, contrôle, reprise et historique |
+| Pages 7 à 10 | Fichiers de code, entrées, tableaux, graphiques et exports |
+| Annexe A, pages 11 à 12 | Appels du pipeline et circulation des données |
+| Annexe B, pages 13 à 23 | Variables EU / US, piliers, macro, taux, votes et recommandations |
+| Pages 24 à 25 | Portefeuille, performances et fonctions à consulter |
 
-Après le refresh et la sauvegarde des fichiers Excel :
+## Entrées de code
 
-```python
-from model_secto import SectorModel
+| Fichier | Rôle |
+| --- | --- |
+| Actualiser.bat | Commande de production et ouverture des résultats |
+| actualiser_excel.py | Quatre étapes de production et bilan |
+| local_config.py | Seule configuration persistante des sources et du modèle |
+| model_secto.py | Interface SectorModel, pipeline et calculs |
+| data_utils.py | Sources, dates, historique et conservation des fichiers Excel |
+| excel_output.py | Output, portefeuille, formats, graphiques et écriture dans les XLSM |
+| research_secto.py | Outils de recherche et backtests |
 
-SectorModel("EU").run_production()
-SectorModel("US").run_production()
-```
+## Structure du modèle
 
-Les fichiers sont écrits dans `output/`.
+model_secto.py contient six parties dans cet ordre :
 
-Pour chaque marché :
+1. SectorModel : choix du marché, production et lecture des résultats.
+2. run_model : enchaînement des calculs d'un marché.
+3. Sous-scores et piliers : mesures, rangs, Momentum et Volatility.
+4. Macro et taux : contexte du mois.
+5. Rangs et recommandations : scores agrégés, votes et choix des secteurs.
+6. Exports : tableaux de scores en CSV.
 
-- `*_recommandations_latest.csv` : recommandations les plus récentes.
-- `*_piliers_latest_with_reco.csv` : scores des piliers avec recommandation.
-- `*_piliers_latest_available.csv` : derniers scores de piliers disponibles.
+Le schéma au début du fichier montre le parcours des données. actualiser_excel.py appelle le modèle puis excel_output.update_workbooks ; les détails techniques Excel restent dans excel_output.py et data_utils.py.
 
-`run_production()` relit toujours les fichiers source avant de lancer le calcul.
-
-## Historique
-
-Les données utilisées par le modèle sont conservées dans :
-
-```text
-data_history.parquet
-```
-
-L'historique est mis à jour de façon incrémentale.
-
-Pour chaque série et chaque mois :
-
-- si le mois n'existe pas encore, il est ajouté ;
-- s'il existe déjà, la première observation enregistrée est conservée.
-
-Une révision ultérieure du fichier source ne remplace donc pas une valeur déjà figée.
-
-## Utilisation du modèle
+## Utilisation Python
 
 ```python
 from model_secto import SectorModel
 
 model = SectorModel("EU")
 results = model.run()
-```
-
-Quelques méthodes utiles :
-
-```python
-model.summary()
 model.variables("Value")
-model.variable_definitions("Value")
 model.composition("Value")
 model.variable_table("Value")
 model.recommendations()
 ```
 
-## Test d'une autre composition
+run() peut ajouter des observations à data_history.xlsx. Ce n'est pas une lecture sans effet sur l'historique.
 
-Il est possible de modifier les variables utilisées dans un pilier :
+run_production() calcule et exporte les CSV et la grille Excel. Pour mettre à jour les deux XLSM et leur présentation, utiliser Actualiser.bat ou python actualiser_excel.py.
 
-```python
-model = SectorModel(
-    universe="EU",
-    variables={
-        "Value": [
-            "price_fcf",
-            "ev_ebitda",
-        ],
-    },
-)
+save_outputs() écrit aussi *_historique_modele.csv. Cet export complet n'est pas actualisé par le lancement mensuel standard.
 
-results = model.run()
-```
+## Recherche et audit
 
-Les piliers non précisés gardent leur configuration par défaut.
+research_secto.ipynb utilise SectorResearch. audit_modele_eu.ipynb et audit_modele_us.ipynb donnent une lecture détaillée du modèle. Les backtests de recherche sont distincts du portefeuille pondéré de production.
 
-Les règles spécifiques à certains secteurs restent appliquées. Une combinaison incompatible est refusée avant le calcul.
+Les notebooks sont conservés sans leurs résultats d'exécution dans le dépôt. Les figures et CSV générés dans output/ peuvent être recréés.
 
-## Research
-
-Pour les plots et backtests :
-
-```python
-from research_secto import SectorResearch
-
-research = SectorResearch(model)
-
-summary, backtests, fig, ax = research.backtest(
-    pillar="Value",
-    top_n=3,
-    plot_series=["top", "benchmark"],
-)
-```
-
-Le notebook `research_secto.ipynb` permet de modifier directement l'univers, les variables, les dates et les paramètres de backtest.
-
-## Remarque
-
-La dernière date disponible pour les piliers peut être plus récente que la dernière recommandation finale si les données macro ne sont pas encore disponibles pour le même mois.
+Les règles détaillées sont maintenues dans le Word, avec les noms des fonctions source.

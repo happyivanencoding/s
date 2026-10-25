@@ -2,4 +2,5 @@ pandas
 numpy
 openpyxl
 matplotlib
-pyarrow
+lxml
+pywin32; sys_platform == "win32"

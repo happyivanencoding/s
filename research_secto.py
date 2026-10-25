@@ -26,9 +26,7 @@ def backtest_score(
 ):
     """Backteste un score sectoriel en pondération égale."""
     score = score.sort_index()
-    dates = score.index.intersection(
-        forward_returns.index
-    ).sort_values()
+    dates = score.index.intersection(forward_returns.index).sort_values()
 
     if start:
         dates = dates[dates >= pd.Timestamp(start)]
@@ -42,30 +40,21 @@ def backtest_score(
         signal = score.loc[date].dropna()
         returns = forward_returns.loc[date].dropna()
 
-        sectors = signal.index.intersection(
-            returns.index
-        )
+        sectors = signal.index.intersection(returns.index)
         signal = signal.loc[sectors]
         returns = returns.loc[sectors]
 
         if len(signal) < 2 * top_n:
             continue
 
-        top = list(
-            signal.nlargest(top_n).index
-        )
-        worst = list(
-            signal.nsmallest(top_n).index
-        )
+        top = list(signal.nlargest(top_n).index)
+        worst = list(signal.nsmallest(top_n).index)
 
         return_top = returns.loc[top].mean()
         return_worst = returns.loc[worst].mean()
         return_benchmark = np.nan
 
-        if (
-            benchmark_returns is not None
-            and date in benchmark_returns.index
-        ):
+        if benchmark_returns is not None and date in benchmark_returns.index:
             return_benchmark = benchmark_returns.loc[date]
 
         rows.append(
@@ -73,9 +62,7 @@ def backtest_score(
                 "date_signal": date,
                 "return_top": return_top,
                 "return_worst": return_worst,
-                "return_long_short": (
-                    return_top - return_worst
-                ),
+                "return_long_short": (return_top - return_worst),
                 "return_benchmark": return_benchmark,
                 "top_sectors": " | ".join(top),
                 "worst_sectors": " | ".join(worst),
@@ -90,14 +77,8 @@ def max_drawdown(returns):
     if len(returns) == 0:
         return np.nan
 
-    wealth = (
-        1 + returns.fillna(0)
-    ).cumprod()
-    drawdown = (
-        wealth
-        / wealth.cummax()
-        - 1
-    )
+    wealth = (1 + returns.fillna(0)).cumprod()
+    drawdown = wealth / wealth.cummax() - 1
 
     return drawdown.min()
 
@@ -117,36 +98,23 @@ def statistics(backtest):
             "max_drawdown_ls": np.nan,
         }
 
-    top = backtest[
-        "return_top"
-    ].dropna()
-    long_short = backtest[
-        "return_long_short"
-    ].dropna()
+    top = backtest["return_top"].dropna()
+    long_short = backtest["return_long_short"].dropna()
 
     def annual_return(series):
         if len(series) == 0:
             return np.nan
 
-        return (
-            (1 + series).prod()
-            ** (12 / len(series))
-            - 1
-        )
+        return (1 + series).prod() ** (12 / len(series)) - 1
 
     def annual_volatility(series):
         if len(series) < 2:
             return np.nan
 
-        return (
-            series.std(ddof=1)
-            * math.sqrt(12)
-        )
+        return series.std(ddof=1) * math.sqrt(12)
 
     top_volatility = annual_volatility(top)
-    long_short_volatility = annual_volatility(
-        long_short
-    )
+    long_short_volatility = annual_volatility(long_short)
 
     return {
         "n_months": len(backtest),
@@ -160,23 +128,12 @@ def statistics(backtest):
         "ann_return_ls": annual_return(long_short),
         "ann_vol_ls": long_short_volatility,
         "sharpe_ls": (
-            long_short.mean()
-            * 12
-            / long_short_volatility
-            if (
-                long_short_volatility
-                and long_short_volatility > 0
-            )
+            long_short.mean() * 12 / long_short_volatility
+            if (long_short_volatility and long_short_volatility > 0)
             else np.nan
         ),
-        "win_rate_ls": (
-            (long_short > 0).mean()
-            if len(long_short)
-            else np.nan
-        ),
-        "max_drawdown_ls": max_drawdown(
-            long_short
-        ),
+        "win_rate_ls": ((long_short > 0).mean() if len(long_short) else np.nan),
+        "max_drawdown_ls": max_drawdown(long_short),
     }
 
 
@@ -185,9 +142,7 @@ class SectorResearch:
 
     def __init__(self, model):
         if not isinstance(model, SectorModel):
-            raise TypeError(
-                "model must be a SectorModel."
-            )
+            raise TypeError("model must be a SectorModel.")
 
         self.model = model
         self.universe = model.universe
@@ -211,36 +166,21 @@ class SectorResearch:
         dates = None
 
         for score in pillars.values():
-            dates = (
-                score.index
-                if dates is None
-                else dates.intersection(
-                    score.index
-                )
-            )
+            dates = score.index if dates is None else dates.intersection(score.index)
 
         dates = dates.sort_values()
 
         if len(dates) == 0:
-            raise ValueError(
-                "Aucune date commune entre les piliers."
-            )
+            raise ValueError("Aucune date commune entre les piliers.")
 
         if date is None:
             return dates[-1]
 
-        target = (
-            pd.Timestamp(date)
-            .to_period("M")
-            .to_timestamp("M")
-        )
+        target = pd.Timestamp(date).to_period("M").to_timestamp("M")
         available = dates[dates <= target]
 
         if len(available) == 0:
-            raise ValueError(
-                f"Aucune date disponible avant "
-                f"{target.date()}."
-            )
+            raise ValueError(f"Aucune date disponible avant " f"{target.date()}.")
 
         return available[-1]
 
@@ -255,22 +195,14 @@ class SectorResearch:
         date = self._pillar_date(date)
 
         if pillars is None:
-            pillars = list(
-                self.config["poids_base"]
-            )
+            pillars = list(self.config["base_weights"])
 
-        unknown = [
-            pillar
-            for pillar in pillars
-            if pillar not in results["pillars"]
-        ]
+        unknown = [pillar for pillar in pillars if pillar not in results["pillars"]]
 
         if unknown:
-            raise ValueError(
-                f"Piliers inconnus : {unknown}"
-            )
+            raise ValueError(f"Piliers inconnus : {unknown}")
 
-        sectors = self.config["secteurs"]
+        sectors = self.config["sectors"]
         matrix = np.array(
             [
                 [
@@ -290,9 +222,7 @@ class SectorResearch:
             np.nanmax(matrix),
         )
 
-        fig, ax = plt.subplots(
-            figsize=figsize
-        )
+        fig, ax = plt.subplots(figsize=figsize)
         image = ax.imshow(
             matrix,
             aspect="auto",
@@ -300,31 +230,16 @@ class SectorResearch:
             vmax=vmax,
         )
 
-        ax.set_xticks(
-            range(len(pillars))
-        )
-        ax.set_xticklabels(
-            pillars
-        )
-        ax.set_yticks(
-            range(len(sectors))
-        )
-        ax.set_yticklabels(
-            sectors
-        )
-        ax.set_title(
-            f"{self.universe} - Scores des piliers "
-            f"au {date.date()}"
-        )
+        ax.set_xticks(range(len(pillars)))
+        ax.set_xticklabels(pillars)
+        ax.set_yticks(range(len(sectors)))
+        ax.set_yticklabels(sectors)
+        ax.set_title(f"{self.universe} - Scores des piliers " f"au {date.date()}")
 
         for i in range(len(sectors)):
             for j in range(len(pillars)):
                 value = matrix[i, j]
-                label = (
-                    "-"
-                    if np.isnan(value)
-                    else f"{value:.1f}"
-                )
+                label = "-" if np.isnan(value) else f"{value:.1f}"
                 ax.text(
                     j,
                     i,
@@ -359,34 +274,21 @@ class SectorResearch:
         if variables is None:
             variables = active
 
-        unknown = [
-            variable
-            for variable in variables
-            if variable not in active
-        ]
+        unknown = [variable for variable in variables if variable not in active]
 
         if unknown:
-            raise ValueError(
-                f"Variables inconnues pour "
-                f"{pillar} : {unknown}"
-            )
+            raise ValueError(f"Variables inconnues pour " f"{pillar} : {unknown}")
 
-        sectors = self.config["secteurs"]
+        sectors = self.config["sectors"]
         matrix = []
 
         for sector in sectors:
             row = []
 
             for variable in variables:
-                score = results[
-                    "variable_scores"
-                ][variable]
+                score = results["variable_scores"][variable]
 
-                row.append(
-                    score.at[date, sector]
-                    if date in score.index
-                    else np.nan
-                )
+                row.append(score.at[date, sector] if date in score.index else np.nan)
 
             matrix.append(row)
 
@@ -399,9 +301,7 @@ class SectorResearch:
             np.nanmax(matrix),
         )
 
-        fig, ax = plt.subplots(
-            figsize=figsize
-        )
+        fig, ax = plt.subplots(figsize=figsize)
         image = ax.imshow(
             matrix,
             aspect="auto",
@@ -409,33 +309,20 @@ class SectorResearch:
             vmax=vmax,
         )
 
-        ax.set_xticks(
-            range(len(variables))
-        )
+        ax.set_xticks(range(len(variables)))
         ax.set_xticklabels(
             variables,
             rotation=20,
             ha="right",
         )
-        ax.set_yticks(
-            range(len(sectors))
-        )
-        ax.set_yticklabels(
-            sectors
-        )
-        ax.set_title(
-            f"{self.universe} - {pillar} "
-            f"au {date.date()}"
-        )
+        ax.set_yticks(range(len(sectors)))
+        ax.set_yticklabels(sectors)
+        ax.set_title(f"{self.universe} - {pillar} " f"au {date.date()}")
 
         for i in range(len(sectors)):
             for j in range(len(variables)):
                 value = matrix[i, j]
-                label = (
-                    "-"
-                    if np.isnan(value)
-                    else f"{value:.1f}"
-                )
+                label = "-" if np.isnan(value) else f"{value:.1f}"
                 ax.text(
                     j,
                     i,
@@ -460,62 +347,35 @@ class SectorResearch:
         figsize=(9, 6),
     ):
         """Affiche le rang global pour une date de recommandation."""
-        history = self._results()[
-            "history"
-        ]
+        history = self._results()["history"]
 
         if history.empty:
-            raise ValueError(
-                "Aucune recommandation finale disponible."
-            )
+            raise ValueError("Aucune recommandation finale disponible.")
 
-        dates = (
-            history["date"]
-            .drop_duplicates()
-            .sort_values()
-        )
+        dates = history["date"].drop_duplicates().sort_values()
 
         if date is None:
             date = dates.iloc[-1]
         else:
-            target = (
-                pd.Timestamp(date)
-                .to_period("M")
-                .to_timestamp("M")
-            )
-            available = dates[
-                dates <= target
-            ]
+            target = pd.Timestamp(date).to_period("M").to_timestamp("M")
+            available = dates[dates <= target]
 
             if len(available) == 0:
-                raise ValueError(
-                    f"Aucune recommandation avant "
-                    f"{target.date()}."
-                )
+                raise ValueError(f"Aucune recommandation avant " f"{target.date()}.")
 
             date = available.iloc[-1]
 
-        row = history[
-            history["date"] == date
-        ].sort_values(
-            "rang_global"
-        )
+        row = history[history["date"] == date].sort_values("rang_global")
 
-        fig, ax = plt.subplots(
-            figsize=figsize
-        )
+        fig, ax = plt.subplots(figsize=figsize)
         ax.barh(
             row["secteur"],
             row["rang_global"],
         )
         ax.set_xlabel(
-            f"Rang final - 1 = Worst, "
-            f"{len(self.config['secteurs'])} = Best"
+            f"Rang final - 1 = Worst, " f"{len(self.config['sectors'])} = Best"
         )
-        ax.set_title(
-            f"{self.universe} - Rang final "
-            f"au {date.date()}"
-        )
+        ax.set_title(f"{self.universe} - Rang final " f"au {date.date()}")
         fig.tight_layout()
 
         return fig, ax
@@ -539,38 +399,22 @@ class SectorResearch:
         if variables is None:
             variables = active
 
-        unknown = [
-            variable
-            for variable in variables
-            if variable not in active
-        ]
+        unknown = [variable for variable in variables if variable not in active]
 
         if unknown:
-            raise ValueError(
-                f"Variables inconnues pour "
-                f"{pillar} : {unknown}"
-            )
+            raise ValueError(f"Variables inconnues pour " f"{pillar} : {unknown}")
 
-        forward_returns = prepare_forward_returns(
-            results["returns"]
-        )
-        benchmark_returns = (
-            prepare_forward_returns(
-                results["benchmark_returns"]
-            )["benchmark"]
-        )
+        forward_returns = prepare_forward_returns(results["returns"])
+        benchmark_returns = prepare_forward_returns(results["benchmark_returns"])[
+            "benchmark"
+        ]
 
         scores = {
-            variable: results[
-                "variable_scores"
-            ][variable]
-            for variable in variables
+            variable: results["variable_scores"][variable] for variable in variables
         }
 
         if include_pillar:
-            scores[f"{pillar}_total"] = (
-                results["pillars"][pillar]
-            )
+            scores[f"{pillar}_total"] = results["pillars"][pillar]
 
         rows = []
         backtests = {}
@@ -579,9 +423,7 @@ class SectorResearch:
             backtest = backtest_score(
                 score,
                 forward_returns,
-                benchmark_returns=(
-                    benchmark_returns
-                ),
+                benchmark_returns=(benchmark_returns),
                 top_n=top_n,
                 start=start,
                 end=end,
@@ -589,12 +431,8 @@ class SectorResearch:
 
             backtests[name] = backtest
 
-            row = {
-                "variable": name
-            }
-            row.update(
-                statistics(backtest)
-            )
+            row = {"variable": name}
+            row.update(statistics(backtest))
             rows.append(row)
 
         summary = (
@@ -616,30 +454,19 @@ class SectorResearch:
                     "benchmark",
                 ]
 
-            plot_series = list(
-                plot_series
-            )
+            plot_series = list(plot_series)
             valid_series = {
                 "top",
                 "worst",
                 "long_short",
                 "benchmark",
             }
-            unknown_series = [
-                name
-                for name in plot_series
-                if name not in valid_series
-            ]
+            unknown_series = [name for name in plot_series if name not in valid_series]
 
             if unknown_series:
-                raise ValueError(
-                    f"Séries de plot inconnues : "
-                    f"{unknown_series}"
-                )
+                raise ValueError(f"Séries de plot inconnues : " f"{unknown_series}")
 
-            fig, ax = plt.subplots(
-                figsize=figsize
-            )
+            fig, ax = plt.subplots(figsize=figsize)
 
             columns = {
                 "top": (
@@ -660,36 +487,23 @@ class SectorResearch:
                 if backtest.empty:
                     continue
 
-                indexed = backtest.set_index(
-                    "date_signal"
-                )
+                indexed = backtest.set_index("date_signal")
 
                 for series_name in plot_series:
                     if series_name == "benchmark":
                         continue
 
-                    column, label = columns[
-                        series_name
-                    ]
-                    series = indexed[
-                        column
-                    ].dropna()
-                    cumulative = (
-                        1 + series
-                    ).cumprod()
+                    column, label = columns[series_name]
+                    series = indexed[column].dropna()
+                    cumulative = (1 + series).cumprod()
 
                     ax.plot(
                         cumulative.index,
                         cumulative.values,
-                        label=(
-                            f"{name} - {label}"
-                        ),
+                        label=(f"{name} - {label}"),
                     )
 
-            if (
-                "benchmark" in plot_series
-                and backtests
-            ):
+            if "benchmark" in plot_series and backtests:
                 date_series = [
                     backtest["date_signal"]
                     for backtest in backtests.values()
@@ -697,45 +511,24 @@ class SectorResearch:
                 ]
 
                 if date_series:
-                    date_min = min(
-                        series.min()
-                        for series in date_series
-                    )
-                    date_max = max(
-                        series.max()
-                        for series in date_series
-                    )
+                    date_min = min(series.min() for series in date_series)
+                    date_max = max(series.max() for series in date_series)
 
                     benchmark = benchmark_returns[
-                        (
-                            benchmark_returns.index
-                            >= date_min
-                        )
-                        & (
-                            benchmark_returns.index
-                            <= date_max
-                        )
+                        (benchmark_returns.index >= date_min)
+                        & (benchmark_returns.index <= date_max)
                     ].dropna()
 
-                    cumulative = (
-                        1 + benchmark
-                    ).cumprod()
+                    cumulative = (1 + benchmark).cumprod()
 
                     ax.plot(
                         cumulative.index,
                         cumulative.values,
-                        label=self.config[
-                            "volatilite"
-                        ]["benchmark_nom"],
+                        label=self.config["volatility"]["benchmark_name"],
                     )
 
-            ax.set_title(
-                f"{self.universe} - "
-                f"{pillar} : backtest"
-            )
-            ax.set_ylabel(
-                "Valeur cumulée - base 1"
-            )
+            ax.set_title(f"{self.universe} - " f"{pillar} : backtest")
+            ax.set_ylabel("Valeur cumulée - base 1")
             ax.legend()
             ax.grid(alpha=0.2)
             fig.tight_layout()
@@ -761,26 +554,15 @@ class SectorResearch:
             exist_ok=True,
         )
 
-        prefix = self.config[
-            "prefixe_sortie"
-        ]
+        prefix = self.config["output_prefix"]
 
         summary.to_csv(
-            output_dir
-            / (
-                f"{prefix}_"
-                f"{pillar.lower()}_summary.csv"
-            ),
+            output_dir / (f"{prefix}_" f"{pillar.lower()}_summary.csv"),
             index=False,
         )
 
         for name, backtest in backtests.items():
             backtest.to_csv(
-                output_dir
-                / (
-                    f"{prefix}_"
-                    f"{pillar.lower()}_"
-                    f"{name}_monthly.csv"
-                ),
+                output_dir / (f"{prefix}_" f"{pillar.lower()}_" f"{name}_monthly.csv"),
                 index=False,
             )

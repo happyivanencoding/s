@@ -1,16 +1,23 @@
 # -*- coding: utf-8 -*-
-"""Configuration des modèles sectoriels Europe et US."""
+"""Configuration commune aux modèles Europe et US.
 
-FICHIER_EXCEL_EU = ""
-FICHIER_EXCEL_US = ""
-FICHIER_EXCEL_MACRO = ""
+Modifier ici les chemins, les secteurs, les variables et les pondérations.
+Par défaut, les fichiers Excel sont dans le même dossier que ce fichier.
+"""
 
-CONFIG_HISTORIQUE = {
-    "actif": True,
-    "fichier": "data_history.parquet",
+from pathlib import Path
+
+PROJECT_DIR = Path(__file__).resolve().parent
+EU_EXCEL_FILE = str(PROJECT_DIR / "Score_Sectoriel_EU.xlsm")
+US_EXCEL_FILE = str(PROJECT_DIR / "Score_Sectoriel_US.xlsm")
+MACRO_EXCEL_FILE = str(PROJECT_DIR / "maj cycle macro2.xlsx")
+
+HISTORY_CONFIG = {
+    "enabled": True,
+    "file": "data_history.xlsx",
 }
 
-SECTEURS = [
+EU_SECTORS = [
     "Materials",
     "ConsStaples",
     "Pers. Goods",
@@ -26,11 +33,14 @@ SECTEURS = [
     "Auto",
 ]
 
+PORTFOLIO_DELTA = 0.05
+PORTFOLIO_TILT = 0.20
+
 N_TOP = 3
 N_WORST = 3
-FENETRE_HISTORIQUE = 60
+EU_HISTORY_WINDOW = 60
 
-POIDS_BASE = {
+EU_BASE_WEIGHTS = {
     "Leverage": 1 / 6,
     "Margin": 1 / 6,
     "Value": 1 / 6,
@@ -39,7 +49,7 @@ POIDS_BASE = {
     "Volatility": 1 / 6,
 }
 
-POIDS_REGIME = {
+EU_REGIME_WEIGHTS = {
     "C": {
         "Leverage": 0.10,
         "Margin": 0.00,
@@ -74,104 +84,104 @@ POIDS_REGIME = {
     },
 }
 
-VARIABLES_HISTORIQUES = {
+EU_HISTORICAL_VARIABLES = {
     "Leverage": {
         "net_debt_ebitda": {
             "sheet": "Leverage_FMA",
-            "colonne": "AF",
-            "ordre_rank": 0,
-            "moyenne_sans_finance": False,
-            "mix_rank_transversal": False,
+            "column": "AF",
+            "rank_order": 0,
+            "exclude_financials_from_mean": False,
+            "mix_cross_sectional_rank": False,
         },
         "fcf_total_debt": {
             "sheet": "Leverage_FMA",
-            "colonne": "FB",
-            "ordre_rank": 1,
-            "moyenne_sans_finance": False,
-            "mix_rank_transversal": False,
+            "column": "FB",
+            "rank_order": 1,
+            "exclude_financials_from_mean": False,
+            "mix_cross_sectional_rank": False,
         },
         "debt_equity": {
             "sheet": "Leverage_FMA",
-            "colonne": "GR",
-            "ordre_rank": 0,
-            "moyenne_sans_finance": False,
-            "mix_rank_transversal": False,
+            "column": "GR",
+            "rank_order": 0,
+            "exclude_financials_from_mean": False,
+            "mix_cross_sectional_rank": False,
         },
     },
     "Margin": {
         "operating_margin": {
             "sheet": "Margin_FMA",
-            "colonne": "BV",
-            "ordre_rank": 1,
-            "moyenne_sans_finance": False,
-            "mix_rank_transversal": True,
+            "column": "BV",
+            "rank_order": 1,
+            "exclude_financials_from_mean": False,
+            "mix_cross_sectional_rank": True,
         },
         "net_margin": {
             "sheet": "Margin_FMA",
-            "colonne": "DL",
-            "ordre_rank": 1,
-            "moyenne_sans_finance": False,
-            "mix_rank_transversal": True,
+            "column": "DL",
+            "rank_order": 1,
+            "exclude_financials_from_mean": False,
+            "mix_cross_sectional_rank": True,
         },
         "ebitda_margin": {
             "sheet": "Margin_FMA",
-            "colonne": "GR",
-            "ordre_rank": 1,
-            "moyenne_sans_finance": False,
-            "mix_rank_transversal": True,
+            "column": "GR",
+            "rank_order": 1,
+            "exclude_financials_from_mean": False,
+            "mix_cross_sectional_rank": True,
         },
     },
     "Value": {
         "price_fcf": {
             "sheet": "Valuation_FMA_hist",
-            "colonne": "DL",
-            "ordre_rank": 0,
-            "moyenne_sans_finance": True,
-            "mix_rank_transversal": False,
-            "fenetre_par_secteur": {"Tech": 36},
+            "column": "DL",
+            "rank_order": 0,
+            "exclude_financials_from_mean": True,
+            "mix_cross_sectional_rank": False,
+            "sector_windows": {"Tech": 36},
         },
         "ev_ebitda": {
             "sheet": "Valuation_FMA_hist",
-            "colonne": "FB",
-            "ordre_rank": 0,
-            "moyenne_sans_finance": True,
-            "mix_rank_transversal": False,
-            "fenetre_par_secteur": {"Tech": 36},
+            "column": "FB",
+            "rank_order": 0,
+            "exclude_financials_from_mean": True,
+            "mix_cross_sectional_rank": False,
+            "sector_windows": {"Tech": 36},
         },
         "price_sales": {
             "sheet": "Valuation_FMA_hist",
-            "colonne": "GR",
-            "ordre_rank": 0,
-            "moyenne_sans_finance": False,
-            "mix_rank_transversal": False,
+            "column": "GR",
+            "rank_order": 0,
+            "exclude_financials_from_mean": False,
+            "mix_cross_sectional_rank": False,
         },
     },
     "Growth": {
         "eps_growth": {
             "sheet": "Growth_FMA",
-            "colonne": "AF",
-            "ordre_rank": 1,
-            "moyenne_sans_finance": False,
-            "mix_rank_transversal": False,
+            "column": "AF",
+            "rank_order": 1,
+            "exclude_financials_from_mean": False,
+            "mix_cross_sectional_rank": False,
         },
         "sales_growth": {
             "sheet": "Growth_FMA",
-            "colonne": "DL",
-            "ordre_rank": 1,
-            "moyenne_sans_finance": False,
-            "mix_rank_transversal": False,
+            "column": "DL",
+            "rank_order": 1,
+            "exclude_financials_from_mean": False,
+            "mix_cross_sectional_rank": False,
         },
         "ebitda_growth": {
             "sheet": "Growth_FMA",
-            "colonne": "FB",
-            "ordre_rank": 1,
-            "moyenne_sans_finance": True,
-            "mix_rank_transversal": False,
+            "column": "FB",
+            "rank_order": 1,
+            "exclude_financials_from_mean": True,
+            "mix_cross_sectional_rank": False,
         },
     },
 }
 
-EXCLUSIONS_PILIER = {
+PILLAR_EXCLUSIONS = {
     "Growth": {
         "Fin": {"ebitda_growth"},
     },
@@ -181,63 +191,63 @@ EXCLUSIONS_PILIER = {
     },
 }
 
-ARRONDI_PILIER = {
+EU_PILLAR_ROUNDING = {
     "Growth": 14,
 }
 
-CONFIG_MOMENTUM = {
+EU_MOMENTUM_CONFIG = {
     "sheet": "MOM_FMA",
-    "colonne_prix": "AT",
-    "colonne_revision_up": "DL",
-    "colonne_revision_down": "DZ",
-    "colonne_revision_unchanged": "EN",
-    "horizon_court": 6,
-    "horizon_long": 12,
-    "secteur_mois_courant": "Tech",
+    "price_column": "AT",
+    "revision_up_column": "DL",
+    "revision_down_column": "DZ",
+    "revision_unchanged_column": "EN",
+    "short_horizon": 6,
+    "long_horizon": 12,
+    "current_month_sector": "Tech",
 }
 
-CONFIG_VOLATILITE = {
+EU_VOLATILITY_CONFIG = {
     "sheet_returns": "Returns_EQ",
-    "ligne_debut_returns": 7,
-    "colonne_date": "P",
-    "colonne_benchmark_returns": "Q",
-    "benchmark_nom": "FTSE World Europe",
-    "colonne_debut_returns": "R",
-    "offset_volatilite": 6,
+    "returns_start_row": 7,
+    "date_column": "P",
+    "benchmark_returns_column": "Q",
+    "benchmark_name": "FTSE World Europe",
+    "returns_start_column": "R",
+    "volatility_offset": 6,
     "offset_downside": 18,
 }
 
-CONFIG_MACRO_EU = {
+EU_MACRO_CONFIG = {
     "sheet": "Europe",
-    "ligne_debut": 4,
-    "colonne_date": "A",
-    "colonne_score": "R",
-    "colonne_regime": "V",
+    "start_row": 4,
+    "date_column": "A",
+    "score_column": "R",
+    "regime_column": "V",
 }
 
-CONFIG_SIGNAL_TAUX = {
+EU_RATE_SIGNAL_CONFIG = {
     "sheet": "Cycle macro",
-    "ligne_debut": 4,
-    "colonne_date": "A",
-    "colonne_us10y": "R",
+    "start_row": 4,
+    "date_column": "A",
+    "us10y_column": "R",
     "alpha_ewma": 0.715,
-    "seuil_percentile": 0.85,
+    "percentile_threshold": 0.85,
 }
 
-REGLES_SANS_VOTE_TOP_WORST = [
+EU_NO_VOTE_RULES = [
     {
-        "secteur": "Travel & leisure",
-        "date_debut": "2011-10-31",
+        "sector": "Travel & leisure",
+        "start_date": "2011-10-31",
     },
 ]
 
-POIDS_VOTE_MACRO = 2
-PILIERS_RATE_OVERLAY = [
+EU_MACRO_VOTE_WEIGHT = 2
+EU_RATE_OVERLAY_PILLARS = [
     "Leverage",
     "Value",
 ]
 
-VARIABLES_BACKTEST = {
+EU_BACKTEST_VARIABLES = {
     "Leverage": [
         "net_debt_ebitda",
         "fcf_total_debt",
@@ -271,19 +281,19 @@ VARIABLES_BACKTEST = {
 
 # Europe
 
-COMPOSITION_PILIERS = {
+EU_PILLAR_COMPOSITION = {
     "Leverage": {"default": ["net_debt_ebitda", "fcf_total_debt", "debt_equity"]},
     "Margin": {"default": ["operating_margin", "net_margin", "ebitda_margin"]},
     "Value": {
         "default": ["price_fcf", "ev_ebitda", "price_sales"],
-        "par_secteur": {
+        "by_sector": {
             "Fin": ["ev_ebitda", "price_sales"],
             "Tech": ["price_fcf", "ev_ebitda"],
         },
     },
     "Growth": {
         "default": ["eps_growth", "sales_growth", "ebitda_growth"],
-        "par_secteur": {"Fin": ["eps_growth", "sales_growth"]},
+        "by_sector": {"Fin": ["eps_growth", "sales_growth"]},
     },
     "Momentum": {
         "default": [
@@ -300,7 +310,7 @@ COMPOSITION_PILIERS = {
     },
 }
 
-POIDS_GLOBAL_MACRO = {
+EU_MACRO_ADJUSTED_WEIGHTS = {
     "Leverage": 1 / 7,
     "Margin": 1 / 7,
     "Value": 1 / 7,
@@ -310,13 +320,13 @@ POIDS_GLOBAL_MACRO = {
     "Macro": 1 / 7,
 }
 
-PILIERS_TOP_VOTE = list(POIDS_BASE)
-PILIERS_BOTTOM_VOTE = list(POIDS_BASE)
+EU_TOP_VOTE_PILLARS = list(EU_BASE_WEIGHTS)
+EU_BOTTOM_VOTE_PILLARS = list(EU_BASE_WEIGHTS)
 
 
 # US
 
-SECTEURS_US = [
+US_SECTORS = [
     "Materials",
     "ConsStaples",
     "Retail",
@@ -333,9 +343,9 @@ SECTEURS_US = [
 
 N_TOP_US = 3
 N_WORST_US = 3
-FENETRE_HISTORIQUE_US = 60
+US_HISTORY_WINDOW = 60
 
-POIDS_BASE_US = {
+US_BASE_WEIGHTS = {
     "Leverage": 0.20,
     "Margin": 0.00,
     "Value": 0.20,
@@ -344,7 +354,7 @@ POIDS_BASE_US = {
     "Volatility": 0.20,
 }
 
-POIDS_REGIME_US = {
+US_REGIME_WEIGHTS = {
     "C": {
         "Leverage": 0.20,
         "Margin": 0.00,
@@ -379,123 +389,123 @@ POIDS_REGIME_US = {
     },
 }
 
-VARIABLES_HISTORIQUES_US = {
+US_HISTORICAL_VARIABLES = {
     "Leverage": {
         "net_debt_ebitda": {
             "sheet": "Leverage_FMA",
-            "colonne": "AD",
-            "ordre_rank": 0,
-            "moyenne_sans_finance": False,
-            "mix_rank_transversal": True,
+            "column": "AD",
+            "rank_order": 0,
+            "exclude_financials_from_mean": False,
+            "mix_cross_sectional_rank": True,
         },
         "fcf_total_debt": {
             "sheet": "Leverage_FMA",
-            "colonne": "EQ",
-            "ordre_rank": 1,
-            "moyenne_sans_finance": False,
-            "mix_rank_transversal": True,
+            "column": "EQ",
+            "rank_order": 1,
+            "exclude_financials_from_mean": False,
+            "mix_cross_sectional_rank": True,
         },
     },
     "Margin": {
         "operating_margin": {
             "sheet": "Margin_FMA",
-            "colonne": "BQ",
-            "ordre_rank": 1,
-            "moyenne_sans_finance": False,
-            "mix_rank_transversal": True,
+            "column": "BQ",
+            "rank_order": 1,
+            "exclude_financials_from_mean": False,
+            "mix_cross_sectional_rank": True,
         },
         "net_margin": {
             "sheet": "Margin_FMA",
-            "colonne": "DD",
-            "ordre_rank": 1,
-            "moyenne_sans_finance": False,
-            "mix_rank_transversal": True,
+            "column": "DD",
+            "rank_order": 1,
+            "exclude_financials_from_mean": False,
+            "mix_cross_sectional_rank": True,
         },
         "ebitda_margin": {
             "sheet": "Margin_FMA",
-            "colonne": "GD",
-            "ordre_rank": 1,
-            "moyenne_sans_finance": False,
-            "mix_rank_transversal": True,
+            "column": "GD",
+            "rank_order": 1,
+            "exclude_financials_from_mean": False,
+            "mix_cross_sectional_rank": True,
         },
     },
     "Value": {
         "pe": {
             "sheet": "Valuation_FMA_hist",
-            "colonne": "AD",
-            "ordre_rank": 0,
-            "moyenne_sans_finance": False,
-            "mix_rank_transversal": False,
+            "column": "AD",
+            "rank_order": 0,
+            "exclude_financials_from_mean": False,
+            "mix_cross_sectional_rank": False,
         },
         "price_fcf": {
             "sheet": "Valuation_FMA_hist",
-            "colonne": "DD",
-            "ordre_rank": 0,
-            "moyenne_sans_finance": True,
-            "mix_rank_transversal": False,
-            "fenetre_par_secteur": {"Tech": 36},
+            "column": "DD",
+            "rank_order": 0,
+            "exclude_financials_from_mean": True,
+            "mix_cross_sectional_rank": False,
+            "sector_windows": {"Tech": 36},
         },
         "ev_ebitda": {
             "sheet": "Valuation_FMA_hist",
-            "colonne": "EQ",
-            "ordre_rank": 0,
-            "moyenne_sans_finance": True,
-            "mix_rank_transversal": False,
-            "fenetre_par_secteur": {"Tech": 36},
+            "column": "EQ",
+            "rank_order": 0,
+            "exclude_financials_from_mean": True,
+            "mix_cross_sectional_rank": False,
+            "sector_windows": {"Tech": 36},
         },
         "price_sales": {
             "sheet": "Valuation_FMA_hist",
-            "colonne": "GD",
-            "ordre_rank": 0,
-            "moyenne_sans_finance": False,
-            "mix_rank_transversal": False,
+            "column": "GD",
+            "rank_order": 0,
+            "exclude_financials_from_mean": False,
+            "mix_cross_sectional_rank": False,
         },
     },
     "Growth": {
         "eps_growth": {
             "sheet": "Growth_FMA",
-            "colonne": "AD",
-            "ordre_rank": 1,
-            "moyenne_sans_finance": False,
-            "mix_rank_transversal": False,
+            "column": "AD",
+            "rank_order": 1,
+            "exclude_financials_from_mean": False,
+            "mix_cross_sectional_rank": False,
         },
         "cash_flow_growth": {
             "sheet": "Growth_FMA",
-            "colonne": "BQ",
-            "ordre_rank": 1,
-            "moyenne_sans_finance": True,
-            "mix_rank_transversal": False,
+            "column": "BQ",
+            "rank_order": 1,
+            "exclude_financials_from_mean": True,
+            "mix_cross_sectional_rank": False,
         },
         "sales_growth": {
             "sheet": "Growth_FMA",
-            "colonne": "DD",
-            "ordre_rank": 1,
-            "moyenne_sans_finance": False,
-            "mix_rank_transversal": False,
+            "column": "DD",
+            "rank_order": 1,
+            "exclude_financials_from_mean": False,
+            "mix_cross_sectional_rank": False,
         },
         "ebitda_growth": {
             "sheet": "Growth_FMA",
-            "colonne": "EQ",
-            "ordre_rank": 1,
-            "moyenne_sans_finance": True,
-            "mix_rank_transversal": False,
+            "column": "EQ",
+            "rank_order": 1,
+            "exclude_financials_from_mean": True,
+            "mix_cross_sectional_rank": False,
         },
     },
 }
 
-COMPOSITION_PILIERS_US = {
+US_PILLAR_COMPOSITION = {
     "Leverage": {"default": ["net_debt_ebitda", "fcf_total_debt"]},
     "Margin": {"default": ["operating_margin", "net_margin", "ebitda_margin"]},
     "Value": {
         "default": ["price_fcf", "ev_ebitda", "price_sales"],
-        "par_secteur": {
+        "by_sector": {
             "Fin": ["pe", "price_sales"],
             "Tech": ["price_fcf", "ev_ebitda"],
         },
     },
     "Growth": {
         "default": ["cash_flow_growth", "ebitda_growth"],
-        "par_secteur": {"Fin": ["eps_growth", "sales_growth"]},
+        "by_sector": {"Fin": ["eps_growth", "sales_growth"]},
     },
     "Momentum": {
         "default": [
@@ -512,49 +522,49 @@ COMPOSITION_PILIERS_US = {
     },
 }
 
-ARRONDI_PILIER_US = {}
+US_PILLAR_ROUNDING = {}
 
-CONFIG_MOMENTUM_US = {
+US_MOMENTUM_CONFIG = {
     "sheet": "MOM_FMA",
-    "colonne_prix": "AQ",
-    "colonne_revision_up": "DD",
-    "colonne_revision_down": "DQ",
-    "colonne_revision_unchanged": "ED",
-    "horizon_court": 6,
-    "horizon_long": 12,
-    "secteur_mois_courant": "Tech",
-    "echelle_0_10": False,
+    "price_column": "AQ",
+    "revision_up_column": "DD",
+    "revision_down_column": "DQ",
+    "revision_unchanged_column": "ED",
+    "short_horizon": 6,
+    "long_horizon": 12,
+    "current_month_sector": "Tech",
+    "scale_0_10": False,
 }
 
-CONFIG_VOLATILITE_US = {
+US_VOLATILITY_CONFIG = {
     "sheet_returns": "Returns_EQ",
-    "ligne_debut_returns": 7,
-    "colonne_date": "O",
-    "colonne_benchmark_returns": "P",
-    "benchmark_nom": "WIUSAU Index",
-    "colonne_debut_returns": "Q",
-    "offset_volatilite": 6,
+    "returns_start_row": 7,
+    "date_column": "O",
+    "benchmark_returns_column": "P",
+    "benchmark_name": "WIUSAU Index",
+    "returns_start_column": "Q",
+    "volatility_offset": 6,
     "offset_downside": 18,
 }
 
-CONFIG_MACRO_US = {
+US_MACRO_CONFIG = {
     "sheet": "US",
-    "ligne_debut": 4,
-    "colonne_date": "A",
-    "colonne_score": "Y",
-    "colonne_regime": "Z",
+    "start_row": 4,
+    "date_column": "A",
+    "score_column": "Y",
+    "regime_column": "Z",
 }
 
-CONFIG_SIGNAL_TAUX_US = {
+US_RATE_SIGNAL_CONFIG = {
     "sheet": "Cycle macro",
-    "ligne_debut": 4,
-    "colonne_date": "A",
-    "colonne_us10y": "U",
+    "start_row": 4,
+    "date_column": "A",
+    "us10y_column": "U",
     "alpha_ewma": 0.715,
-    "seuil_percentile": 0.85,
+    "percentile_threshold": 0.85,
 }
 
-POIDS_GLOBAL_MACRO_US = {
+US_MACRO_ADJUSTED_WEIGHTS = {
     "Leverage": 1 / 6,
     "Margin": 0.00,
     "Value": 1 / 6,
@@ -564,7 +574,7 @@ POIDS_GLOBAL_MACRO_US = {
     "Macro": 1 / 6,
 }
 
-PILIERS_TOP_VOTE_US = [
+US_TOP_VOTE_PILLARS = [
     "Leverage",
     "Margin",
     "Value",
@@ -573,7 +583,7 @@ PILIERS_TOP_VOTE_US = [
     "Volatility",
 ]
 
-PILIERS_BOTTOM_VOTE_US = [
+US_BOTTOM_VOTE_PILLARS = [
     "Leverage",
     "Value",
     "Momentum",
@@ -581,16 +591,16 @@ PILIERS_BOTTOM_VOTE_US = [
     "Volatility",
 ]
 
-REGLES_SANS_VOTE_TOP_WORST_US = [
+US_NO_VOTE_RULES = [
     {
-        "secteur": "Travel & leisure",
-        "date_debut": "2011-10-31",
+        "sector": "Travel & leisure",
+        "start_date": "2011-10-31",
     },
 ]
-POIDS_VOTE_MACRO_US = 1
-PILIERS_RATE_OVERLAY_US = ["Leverage", "Value"]
+US_MACRO_VOTE_WEIGHT = 1
+US_RATE_OVERLAY_PILLARS = ["Leverage", "Value"]
 
-VARIABLES_BACKTEST_US = {
+US_BACKTEST_VARIABLES = {
     "Leverage": ["net_debt_ebitda", "fcf_total_debt"],
     "Margin": ["operating_margin", "net_margin", "ebitda_margin"],
     "Value": ["pe", "price_fcf", "ev_ebitda", "price_sales"],
@@ -600,60 +610,56 @@ VARIABLES_BACKTEST_US = {
 }
 
 
-MODELE_EU = {
-    "nom": "EU",
-    "prefixe_sortie": "eu",
-    "historique_prefixe": "",
-    "fichier_excel": FICHIER_EXCEL_EU,
-    "env_excel": "SCORE_SECTORIEL_EU_XLSM",
-    "secteurs": SECTEURS,
+EU_CONFIG = {
+    "name": "EU",
+    "output_prefix": "eu",
+    "history_prefix": "",
+    "excel_file": EU_EXCEL_FILE,
+    "sectors": EU_SECTORS,
     "n_top": N_TOP,
     "n_worst": N_WORST,
-    "fenetre_historique": FENETRE_HISTORIQUE,
-    "poids_base": POIDS_BASE,
-    "poids_regime": POIDS_REGIME,
-    "poids_global_macro": POIDS_GLOBAL_MACRO,
-    "variables_historiques": VARIABLES_HISTORIQUES,
-    "composition_piliers": COMPOSITION_PILIERS,
-    "arrondi_pilier": ARRONDI_PILIER,
-    "momentum": {**CONFIG_MOMENTUM, "echelle_0_10": True},
-    "volatilite": CONFIG_VOLATILITE,
-    "macro": CONFIG_MACRO_EU,
-    "signal_taux": CONFIG_SIGNAL_TAUX,
-    "piliers_top_vote": PILIERS_TOP_VOTE,
-    "piliers_bottom_vote": PILIERS_BOTTOM_VOTE,
-    "regles_sans_vote": REGLES_SANS_VOTE_TOP_WORST,
-    "poids_vote_macro": POIDS_VOTE_MACRO,
-    "piliers_rate_overlay": PILIERS_RATE_OVERLAY,
-    "variables_backtest": VARIABLES_BACKTEST,
+    "history_window": EU_HISTORY_WINDOW,
+    "base_weights": EU_BASE_WEIGHTS,
+    "regime_weights": EU_REGIME_WEIGHTS,
+    "macro_adjusted_weights": EU_MACRO_ADJUSTED_WEIGHTS,
+    "historical_variables": EU_HISTORICAL_VARIABLES,
+    "pillar_composition": EU_PILLAR_COMPOSITION,
+    "pillar_rounding": EU_PILLAR_ROUNDING,
+    "momentum": {**EU_MOMENTUM_CONFIG, "scale_0_10": True},
+    "volatility": EU_VOLATILITY_CONFIG,
+    "macro": EU_MACRO_CONFIG,
+    "rate_signal": EU_RATE_SIGNAL_CONFIG,
+    "top_vote_pillars": EU_TOP_VOTE_PILLARS,
+    "bottom_vote_pillars": EU_BOTTOM_VOTE_PILLARS,
+    "no_vote_rules": EU_NO_VOTE_RULES,
+    "macro_vote_weight": EU_MACRO_VOTE_WEIGHT,
+    "rate_overlay_pillars": EU_RATE_OVERLAY_PILLARS,
+    "backtest_variables": EU_BACKTEST_VARIABLES,
 }
 
-MODELE_US = {
-    "nom": "US",
-    "prefixe_sortie": "us",
-    "historique_prefixe": "US_",
-    "fichier_excel": FICHIER_EXCEL_US,
-    "env_excel": "SCORE_SECTORIEL_US_XLSM",
-    "secteurs": SECTEURS_US,
+US_CONFIG = {
+    "name": "US",
+    "output_prefix": "us",
+    "history_prefix": "US_",
+    "excel_file": US_EXCEL_FILE,
+    "sectors": US_SECTORS,
     "n_top": N_TOP_US,
     "n_worst": N_WORST_US,
-    "fenetre_historique": FENETRE_HISTORIQUE_US,
-    "poids_base": POIDS_BASE_US,
-    "poids_regime": POIDS_REGIME_US,
-    "poids_global_macro": POIDS_GLOBAL_MACRO_US,
-    "variables_historiques": VARIABLES_HISTORIQUES_US,
-    "composition_piliers": COMPOSITION_PILIERS_US,
-    "arrondi_pilier": ARRONDI_PILIER_US,
-    "momentum": CONFIG_MOMENTUM_US,
-    "volatilite": CONFIG_VOLATILITE_US,
-    "macro": CONFIG_MACRO_US,
-    "signal_taux": CONFIG_SIGNAL_TAUX_US,
-    "piliers_top_vote": PILIERS_TOP_VOTE_US,
-    "piliers_bottom_vote": PILIERS_BOTTOM_VOTE_US,
-    "regles_sans_vote": REGLES_SANS_VOTE_TOP_WORST_US,
-    "poids_vote_macro": POIDS_VOTE_MACRO_US,
-    "piliers_rate_overlay": PILIERS_RATE_OVERLAY_US,
-    "variables_backtest": VARIABLES_BACKTEST_US,
+    "history_window": US_HISTORY_WINDOW,
+    "base_weights": US_BASE_WEIGHTS,
+    "regime_weights": US_REGIME_WEIGHTS,
+    "macro_adjusted_weights": US_MACRO_ADJUSTED_WEIGHTS,
+    "historical_variables": US_HISTORICAL_VARIABLES,
+    "pillar_composition": US_PILLAR_COMPOSITION,
+    "pillar_rounding": US_PILLAR_ROUNDING,
+    "momentum": US_MOMENTUM_CONFIG,
+    "volatility": US_VOLATILITY_CONFIG,
+    "macro": US_MACRO_CONFIG,
+    "rate_signal": US_RATE_SIGNAL_CONFIG,
+    "top_vote_pillars": US_TOP_VOTE_PILLARS,
+    "bottom_vote_pillars": US_BOTTOM_VOTE_PILLARS,
+    "no_vote_rules": US_NO_VOTE_RULES,
+    "macro_vote_weight": US_MACRO_VOTE_WEIGHT,
+    "rate_overlay_pillars": US_RATE_OVERLAY_PILLARS,
+    "backtest_variables": US_BACKTEST_VARIABLES,
 }
-
-

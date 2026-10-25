@@ -1,22 +1,18 @@
-# Surcharges de configuration
-local_config_private.py
-
-# Fichiers de travail
-README.md
+# Résultats reproductibles et sauvegarde avant production
 output/
-data_history.parquet
-audit_modele_eu_executed.ipynb
-audit_modele_us_executed.ipynb
-research_secto_executed.ipynb
 
-# Python
+# Python et notebooks exécutés
 __pycache__/
 *.py[cod]
+.ipynb_checkpoints/
+*_executed.ipynb
 
-# Fichiers temporaires de recherche / validation
-_*.py
+# Fichiers temporaires Excel
+~$*
+*.tmp.xlsx
+*.tmp.xlsm
 
-# Environnements / IDE
+# Environnements et éditeurs
 .venv/
 venv/
 .vscode/
