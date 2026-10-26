@@ -267,7 +267,7 @@ def build_output(results, config):
             ["Classement courant", "Sectors Ranking " + month_label(next_month)],
             ["Classement précédent", "Sectors Ranking " + month_label(date)],
             ["Classement macro", "Macro rank - Currently in " + regime],
-            ["Référence", "Bench" if market == "EU" else "CumRet_S&P500"],
+            ["Référence", "Bench"],
             ["Top", monthly.at[date, "top"]],
             ["Short", -monthly.at[date, "bottom"]],
             ["Long / Short", monthly.at[date, "long_short"]],
@@ -303,7 +303,7 @@ def build_output(results, config):
         + (
             " XSRet vs FTSE World Europe"
             if market == "EU"
-            else " XSRet vs FTSE World US"
+            else " XSRet vs " + config["volatility"]["benchmark_name"]
         ),
     }.items():
         scorecard(col + "9", title)
@@ -472,7 +472,7 @@ def build_output(results, config):
 
     titles = [
         "Date",
-        "CumRet_FTSE World Europe" if market == "EU" else "CumRet_S&P500",
+        "CumRet_" + config["volatility"]["benchmark_name"],
         "CumRet_Sector deviations portfolio",
         "Top 3 Sectors" if market == "EU" else "CumRet_Top",
         "Worst 3 sectors" if market == "EU" else "CumRet_Bottom",
@@ -546,214 +546,63 @@ def append_recommendations(sheet, history, sectors):
     return len(rows)
 
 
-def link_dashboard(workbook, config):
-    """Relie le scorecard, les mini-historiques et les graphiques à Output."""
-    market = config["name"]
-    n = len(config["sectors"])
-    layout = output_layout(config)
-    dash = workbook.Worksheets("Dashboard")
-    title_row = 6 if market == "US" else 7
-    cells = [
-        "BO4",
-        "BP4",
-        "BQ4",
-        "BJ8",
-        "BK10",
-        "BY9",
-        "BZ9",
-        f"BP{title_row}",
-        f"BV{title_row}",
-    ]
-    for column in PILLAR_COLUMNS[market].values():
-        dash.Columns(column).Hidden = False
-    columns = list(PILLAR_COLUMNS[market].values()) + [
-        "BJ",
-        "BN",
-        "BO",
-        "BP",
-        "BQ",
-        "BR",
-        "BU",
-        "BV",
-        "BW",
-        "BX",
-        "BY",
-        "BZ",
-    ]
-    for score, measure, _ in DETAIL_COLUMNS[market].values():
-        columns += [score, measure]
-    cells += [f"{c}{r}" for r in range(10, 10 + n) for c in columns]
-    start = 9 if market == "EU" else 10
-    cells += [f"CD{r}" for r in range(start, start + 5)]
-    dash.Range("H26").Formula = '=TEXT(Output!B2,"[$-040C]mmm-yyyy")&" Commentaire : "'
-    # Excel fournit le nom du format général dans sa langue courante.
-    general_format = workbook.Application.GetInternational(26)
-    for address in cells:
-        cell = dash.Range(address)
-        # Le format texte empêcherait Excel de calculer la formule de liaison.
-        if cell.NumberFormat == "@":
-            cell.MergeArea.NumberFormat = general_format
-        cell.Formula = "=Output!" + output_cell(address, market)
-    for prefix, columns in [
-        (
-            "Courbe",
-            {
-                "Date": "D",
-                "Bench": "E",
-                "Ptf": "F",
-                "Top": "G",
-                "Bottom": "H",
-                "LS": "I",
-            },
-        ),
-        ("Annee", {"Date": "M", "Bench": "N", "Ptf": "O", "Top": "P", "Bottom": "Q"}),
-    ]:
-        start = layout["curves"] + 1
-        date_col = columns["Date"]
-        for name, col in columns.items():
-            formula = (
-                f"=Output!${col}${start}:INDEX(Output!${col}:${col},"
-                f"{start - 1}+COUNT(Output!${date_col}${start}:${date_col}$10000))"
-            )
-            workbook.Names(prefix + "_" + name).RefersTo = formula
-    row_number = layout["recommendations"]
-    dash.Pictures("Historique_recommandations").Formula = (
-        f"=Output!D{row_number}:S{row_number+n}"
-    )
-    end = get_column_letter(22 + n)
-    dash.Pictures("Performances_secteurs").Formula = (
-        f"=Output!V{row_number}:{end}{row_number+7}"
-    )
-
-
-def compact_dashboard(workbook, config):
-    """Rapproche les objets sans changer leur taille."""
-    dash = workbook.Worksheets("Dashboard")
-    left = dash.Range("H1").Left
-    row_number = len(config["sectors"]) + 12
-    objects = {c.Chart.ChartTitle.Text: c for c in dash.ChartObjects()}
-    order = [
-        dash.Shapes("Historique_recommandations"),
-        dash.Shapes("Performances_secteurs"),
-        next(
-            c for title, c in objects.items() if "equity sectors Performance" in title
-        ),
-    ]
-    for item in order:
-        item.Placement = 3
-        item.Left, item.Top = left, dash.Cells(row_number, 8).Top
-        row_number = item.BottomRightCell.Row + 3
-    cumulative = objects["Cumulative Returns benchmarked portfolio"]
-    one_year = objects["Cumulative returns 1Y"]
-    cumulative.Placement = one_year.Placement = 3
-    cumulative.Left, cumulative.Top = left, dash.Cells(row_number, 8).Top
-    one_year.Left, one_year.Top = left + cumulative.Width + 32, cumulative.Top
-    objects["Cumulative Returns"].Placement = 2
-
-
-def format_output(sheet, config, row_count):
-    """Applique les formats de dates, nombres et titres des tableaux."""
-    layout = output_layout(config)
-    n = len(config["sectors"])
-    sheet.Rows.Hidden = False
-    sheet.Columns("A").ColumnWidth = 26
-    sheet.Columns("B").ColumnWidth = 34
-    sheet.Columns("C").ColumnWidth = 3
-    sheet.Columns("D").ColumnWidth = 27
-    sheet.Columns("E:BV").ColumnWidth = 12
-    sheet.Columns("E").ColumnWidth = 18
-    sheet.Range(f"A1:BV{row_count}").VerticalAlignment = -4108
-    sheet.Range("D1:BV1").Font.Bold = True
-    sheet.Range("D1:BV1").WrapText = True
-    sheet.Rows(1).RowHeight = 60
-    sheet.Range("B2:B4").NumberFormat = "dd/mm/yyyy"
-    sheet.Range("B7:B8").NumberFormat = "dd/mm/yyyy"
-    sheet.Range("B9:B10").NumberFormat = "@"
-    sheet.Range("B15:B19").NumberFormat = "0.00%"
-    sheet.Range(f"BU2:BV{n+1}").NumberFormat = "0.00%"
-    r = layout["recommendations"]
-    sheet.Range(f"E{r}:S{r}").NumberFormat = "[$-040C]mmm-yyyy"
-    sheet.Range(f"W{r}:{get_column_letter(22+n)}{r}").HorizontalAlignment = 7
-    sheet.Range(f"W{r+2}:{get_column_letter(22+n)}{r+7}").NumberFormat = "0.00%"
-    h, d, c = layout["history"], layout["details"], layout["curves"]
-    for row_number, end in [(h, "BM"), (d, "I"), (c, "I")]:
-        sheet.Range(f"D{row_number}:{end}{row_number}").Font.Bold = True
-        sheet.Range(f"D{row_number}:{end}{row_number}").WrapText = True
-        sheet.Rows(row_number).RowHeight = 32
-    sheet.Range(f"F{h}:BM{h}").NumberFormat = "[$-040C]mmm-yy"
-    sheet.Range(f"F{h+1}:BM{d-3}").NumberFormat = "0.00"
-    sheet.Range(f"D{d+1}:D{c-3}").NumberFormat = "dd/mm/yyyy"
-    sheet.Range(f"D{c+1}:D{row_count}").NumberFormat = "[$-040C]mmm-yy"
-    sheet.Range(f"M{c+1}:M{c+13}").NumberFormat = "[$-040C]mmm-yy"
-    sheet.Range(f"E{c+1}:I{row_count}").NumberFormat = "0.00"
-    sheet.Range(f"N{c+1}:Q{c+13}").NumberFormat = "0.00"
-    sheet.Range(f"M{c}:Q{c}").Font.Bold = True
-    sheet.Range(f"M{c}:Q{c}").WrapText = True
-
-
 def fill_workbook(workbook, results, config, export_file):
-    """Écrit les valeurs, ajoute les archives et rafraîchit la présentation."""
-    # 1. Remplacer les valeurs d'Output, sans toucher aux feuilles d'entrée.
+    """Remplace les valeurs en conservant la présentation du modèle Excel."""
     workbook.Activate()
     grid, _, _ = build_output(results, config)
-    out = workbook.Worksheets("Output")
-    out.UsedRange.ClearContents()
-    out.Range("B9:B10").NumberFormat = "@"
+    sheet = workbook.Worksheets("Output")
+    last_row = sheet.UsedRange.Rows.Count
+    last_column = get_column_letter(grid.shape[1])
+
+    # 1. Conserver les formats du modèle ; effacer seulement les anciennes valeurs.
+    sheet.UsedRange.ClearContents()
+    if len(grid) > last_row:
+        # Prolonger le format de la dernière ligne pour les nouveaux mois.
+        sheet.Range(f"A{last_row}:{last_column}{last_row}").Copy()
+        sheet.Range(f"A{last_row+1}:{last_column}{len(grid)}").PasteSpecial(
+            Paste=-4122
+        )
+        workbook.Application.CutCopyMode = False
+
     values = tuple(tuple(excel_value(v) for v in row) for row in grid.to_numpy())
-    address = f"A1:{get_column_letter(grid.shape[1])}{len(grid)}"
-    out.Range(address).Value2 = values
-    expected_date = excel_value(results["history"]["date"].max())
-    if out.Range("B2").Value2 != expected_date or out.Range("D1").Value2 != "Secteur":
+    sheet.Range(f"A1:{last_column}{len(grid)}").Value2 = values
+    if (
+        sheet.Range("B2").Value2 != excel_value(results["history"]["date"].max())
+        or sheet.Range("D1").Value2 != "Secteur"
+    ):
         raise RuntimeError("Les valeurs n'ont pas été écrites dans Output.")
-    # 2. Formater les tableaux et ajouter seulement les nouveaux mois archivés.
-    format_output(out, config, len(grid))
+
+    # 2. Ajouter les recommandations nouvelles sans toucher à l'historique.
     added_months = append_recommendations(
         workbook.Worksheets("Reco_histo"), results["history"], config["sectors"]
     )
-    # 3. Mettre à jour les liens, les courbes et la position des objets.
-    link_dashboard(workbook, config)
-    compact_dashboard(workbook, config)
-    dash = workbook.Worksheets("Dashboard")
-    out.Calculate()
-    dash.Calculate()
-    for item in dash.ChartObjects():
-        item.Chart.Refresh()
-    out.Activate()
-    window = workbook.Application.ActiveWindow
-    window.FreezePanes = False
-    out.Range("E2").Select()
-    window.FreezePanes = True
-    window.DisplayGridlines = False
-    window.Zoom = 85
-    window.ScrollColumn = 1
-    window.ScrollRow = 1
-    # 4. Exporter le même tableau, avec ses largeurs et ses hauteurs.
+
+    # 3. Actualiser les graphiques en réutilisant les liens du modèle.
+    dashboard = workbook.Worksheets("Dashboard")
+    sheet.Calculate()
+    dashboard.Calculate()
+    for chart in dashboard.ChartObjects():
+        chart.Chart.Refresh()
+
+    # 4. Copier les valeurs et les formats dans le fichier Output autonome.
     export = workbook.Application.Workbooks.Add()
-    export_sheet = export.Worksheets(1)
-    export_sheet.Name = "Output"
-    source_range = out.Range(address)
-    source_range.Copy(Destination=export_sheet.Range("A1"))
-    source_range.Copy()
-    export_sheet.Range("A1").PasteSpecial(Paste=8)
-    for row_number in range(1, len(grid) + 1):
-        export_sheet.Rows(row_number).RowHeight = out.Rows(row_number).RowHeight
-    export_sheet.Activate()
-    export_sheet.Range("E2").Select()
-    workbook.Application.ActiveWindow.FreezePanes = True
-    workbook.Application.ActiveWindow.DisplayGridlines = False
-    export.SaveAs(str(export_file), FileFormat=51)
-    export.Close(False)
-    # 5. Enregistrer le classeur sur le Dashboard, avec les détails repliés.
+    try:
+        export_sheet = export.Worksheets(1)
+        export_sheet.Name = "Output"
+        source = sheet.Range(f"A1:{last_column}{len(grid)}")
+        source.Copy(Destination=export_sheet.Range("A1"))
+        source.Copy()
+        export_sheet.Range("A1").PasteSpecial(Paste=8)  # Largeurs des colonnes.
+        workbook.Application.CutCopyMode = False
+        for row_number in range(1, len(grid) + 1):
+            export_sheet.Rows(row_number).RowHeight = sheet.Rows(row_number).RowHeight
+        export.SaveAs(str(export_file), FileFormat=51)
+    finally:
+        export.Close(False)
+
+    # 5. Enregistrer le modèle actualisé sur la page Dashboard.
     workbook.Activate()
-    dash.Activate()
-    dash.Outline.ShowLevels(ColumnLevels=1)
-    dash.Range("H4").Select()
-    window = workbook.Application.ActiveWindow
-    window.ScrollColumn = 8
-    window.ScrollRow = 1
-    window.Zoom = 70
-    window.DisplayGridlines = False
-    workbook.Application.CutCopyMode = False
+    dashboard.Activate()
     workbook.Save()
     return added_months
 

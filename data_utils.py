@@ -98,6 +98,9 @@ def normalize_monthly_index(df):
 # 2. Historique mensuel
 
 
+HISTORY_SHEET = "Historique_data"
+
+
 def history_path():
     """Retourne le fichier Excel qui contient tout l'historique."""
     return Path(__file__).resolve().parent / HISTORY_CONFIG["file"]
@@ -109,7 +112,7 @@ def load_history(reload=False):
     if _history is None or reload:
         file_path = history_path()
         _history = (
-            pd.read_excel(file_path, sheet_name="Historique")
+            pd.read_excel(file_path, sheet_name=HISTORY_SHEET)
             if file_path.exists()
             else pd.DataFrame()
         )
@@ -128,7 +131,7 @@ def save_history():
     file_path = history_path()
     temporary = file_path.with_name(file_path.stem + ".tmp.xlsx")
     _history.sort_values(["series_key", "date"], ascending=[True, False]).to_excel(
-        temporary, sheet_name="Historique", index=False, freeze_panes=(1, 3)
+        temporary, sheet_name=HISTORY_SHEET, index=False, freeze_panes=(1, 3)
     )
     normalize_metadata(temporary)
     temporary.replace(file_path)

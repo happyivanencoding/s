@@ -1156,6 +1156,8 @@ def compute_weighted_score(ranks, weights, date):
     )
 
     for pillar, pillar_weight in weights.items():
+        if pillar_weight == 0:
+            continue
         series = ranks[pillar].loc[date]
         valid &= series.notna()
         result += series.fillna(0) * pillar_weight
@@ -1233,7 +1235,7 @@ def compute_macro_adjusted_score(ranks, tilt_rank, date, config):
     )
 
     for pillar, pillar_weight in weights.items():
-        if pillar == "Macro":
+        if pillar == "Macro" or pillar_weight == 0:
             continue
 
         series = ranks[pillar].loc[date]

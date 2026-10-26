@@ -4,14 +4,14 @@
 
 [Guide_production_modele_sectoriel.docx](docs/Guide_production_modele_sectoriel.docx)
 
-| Partie | Contenu |
+| Partie du guide | Contenu |
 | --- | --- |
-| Page 1 | Structure du projet et vue d'ensemble du pipeline |
-| Pages 2 à 6 | Préparation, lancement, contrôle, reprise et historique |
-| Pages 7 à 10 | Fichiers de code, entrées, tableaux, graphiques et exports |
-| Annexe A, pages 11 à 12 | Appels du pipeline et circulation des données |
-| Annexe B, pages 13 à 23 | Variables EU / US, piliers, macro, taux, votes et recommandations |
-| Pages 24 à 25 | Portefeuille, performances et fonctions à consulter |
+| Production mensuelle | Entrées, lancement et lecture des résultats |
+| Données et pipeline | Sources Excel, historique, Output et Dashboard |
+| Méthode EU / US | Variables, scores, piliers, macro, taux et recommandations |
+| Portefeuille et code | Performances, pondérations et fichiers de référence |
+| Annexe A | Pipeline et appels entre actualiser_excel, data_utils, model_secto et excel_output |
+| Annexes B et C | Sens des variables, H / H+X, macro, votes, score global et benchmark |
 
 ## Entrées de code
 
@@ -22,7 +22,7 @@
 | local_config.py | Seule configuration persistante des sources et du modèle |
 | model_secto.py | Interface SectorModel, pipeline et calculs |
 | data_utils.py | Sources, dates, historique et conservation des fichiers Excel |
-| excel_output.py | Output, portefeuille, formats, graphiques et écriture dans les XLSM |
+| excel_output.py | Output, portefeuille, copie des valeurs et conservation des formats du modèle XLSM |
 | research_secto.py | Outils de recherche et backtests |
 
 ## Structure du modèle
@@ -36,7 +36,7 @@ model_secto.py contient six parties dans cet ordre :
 5. Rangs et recommandations : scores agrégés, votes et choix des secteurs.
 6. Exports : tableaux de scores en CSV.
 
-Le schéma au début du fichier montre le parcours des données. actualiser_excel.py appelle le modèle puis excel_output.update_workbooks ; les détails techniques Excel restent dans excel_output.py et data_utils.py.
+Le schéma au début du fichier montre le parcours des données. actualiser_excel.py appelle le modèle puis excel_output.update_workbooks. La feuille Output est actualisée en valeurs seulement, sur une copie du XLSM existant ; les formats, les liaisons du Dashboard et la position des graphiques sont conservés. excel_output.py ajoute les nouveaux mois dans Reco_histo, rafraîchit les graphiques et exporte Output avec sa présentation, sans réappliquer NumberFormat ni reconstruire le Dashboard.
 
 ## Utilisation Python
 
@@ -51,7 +51,7 @@ model.variable_table("Value")
 model.recommendations()
 ```
 
-run() peut ajouter des observations à data_history.xlsx. Ce n'est pas une lecture sans effet sur l'historique.
+run() peut ajouter des observations à data_history.xlsx (feuille Historique_data). Ce n'est pas une lecture sans effet sur l'historique.
 
 run_production() calcule et exporte les CSV et la grille Excel. Pour mettre à jour les deux XLSM et leur présentation, utiliser Actualiser.bat ou python actualiser_excel.py.
 
@@ -63,4 +63,4 @@ research_secto.ipynb utilise SectorResearch. audit_modele_eu.ipynb et audit_mode
 
 Les notebooks sont conservés sans leurs résultats d'exécution dans le dépôt. Les figures et CSV générés dans output/ peuvent être recréés.
 
-Les règles détaillées sont maintenues dans le Word, avec les noms des fonctions source.
+Le Word comprend une synthèse pratique et des annexes de méthodologie et d'architecture Python. Les correspondances précises de cellules et les paramètres techniques restent dans local_config.py et les fonctions Python.

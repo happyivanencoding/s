@@ -22,7 +22,7 @@ flowchart TD
 | local_config.py | Chemins, secteurs, variables et paramètres du modèle |
 | model_secto.py | Interface SectorModel et toutes les fonctions de calcul |
 | data_utils.py | Lecture des données, historique mensuel et conservation des objets Excel |
-| excel_output.py | Tableaux, performances, écriture et mise en forme dans Excel |
+| excel_output.py | Tableaux, performances et collage des valeurs dans les modèles Excel |
 | actualiser_excel.py | Sauvegarde, calcul EU et US, mise à jour Excel et bilan |
 | research_secto.py et notebooks | Recherche, analyses et contrôles détaillés |
 
@@ -30,9 +30,9 @@ Le début de model_secto.py décrit ses six parties : interface, pipeline, sous-
 
 ## Guide de production
 
-Le guide complet est [Guide_production_modele_sectoriel.docx](docs/Guide_production_modele_sectoriel.docx).
+Le guide pratique est [Guide_production_modele_sectoriel.docx](docs/Guide_production_modele_sectoriel.docx).
 
-Il décrit chaque étape mensuelle, les entrées manuelles, les tableaux produits et la méthode de calcul EU / US. Le pipeline figure au début et dans les annexes.
+Le guide présente une synthèse opérationnelle en quatre pages et trois annexes : liens entre les fichiers Python, méthode détaillée des facteurs, agrégation des scores et benchmarks. Les adresses Excel restent dans le code.
 
 ## Production mensuelle
 
@@ -44,9 +44,9 @@ Il décrit chaque étape mensuelle, les entrées manuelles, les tableaux produit
 6. Lire output/actualisation.txt et contrôler Output, Dashboard et Reco_histo.
 7. Conserver et diffuser la version validée.
 
-Le lancement calcule les deux modèles, remplit Output, applique les formats et actualise les graphiques. Aucun collage manuel n'est nécessaire.
+Le lancement calcule les deux modèles et remplace les valeurs d'Output dans des copies des classeurs d'origine. Les formats, les formules du Dashboard et la disposition des graphiques sont ceux du modèle Excel et ne sont pas reconstruits par Python. Les graphiques sont rafraîchis et Reco_histo ne reçoit que les nouveaux mois. Aucun collage manuel n'est nécessaire.
 
-La collecte fournisseur n'est pas déclenchée par ce lancement. Le programme ne filtre pas automatiquement les observations du mois en cours. Les premières observations enregistrées dans data_history.xlsx restent figées.
+La collecte fournisseur n'est pas déclenchée par ce lancement. Le programme ne filtre pas automatiquement les observations du mois en cours. Les premières observations enregistrées dans data_history.xlsx (feuille Historique_data) restent figées.
 
 ## Installation et sources
 
@@ -67,11 +67,11 @@ Les chemins et les paramètres se règlent dans local_config.py. Pour un essai P
 
 ## Résultats et sauvegarde
 
-Les deux XLSM sont mis à jour. Les exports Excel, CSV et le bilan sont dans output/. La dernière sauvegarde automatique est dans output/avant_actualisation/ ; elle ne remplace pas une archive mensuelle. Les copies de travail Excel sont créées dans le dossier temporaire du système et supprimées à la fin.
+Les deux XLSM sont mis à jour à partir de leur propre mise en page ; leurs feuilles Output, Dashboard, Reco_histo et leurs liens doivent donc être déjà préparés dans le modèle. Les exports Excel (copie de la feuille Output avec ses formats), CSV et le bilan sont dans output/. La dernière sauvegarde automatique est dans output/avant_actualisation/ ; elle ne remplace pas une archive mensuelle. Les copies de travail Excel sont créées dans le dossier temporaire du système et supprimées à la fin.
 
-Output!B2 donne la date du signal calculable. B3 indique la date maximale des piliers et B4 le mois d'allocation suivant. Une date récente ne garantit pas que chaque secteur a un score complet.
+La synthèse d'Output affiche le mois du signal, les dernières données de piliers et le mois d'allocation suivant. Les scores indisponibles sont indiqués par n.a.
 
-La source de rendement du benchmark, les poids Bench et les titres doivent être cohérents. Le guide indique les identifiants présents.
+Le rendement du benchmark US provient de WIUSAU Index dans Returns_EQ. Le libellé historique S&P500 des graphiques a été remplacé ; les poids Bench US restent identifiés SP500_bench. Le rapport signale les rendements de benchmark manquants, les piliers qui bloquent un score Fin et la première interruption du cumul portefeuille. Si les valeurs du portefeuille existent dans Output mais pas dans le Dashboard, examiner les séries de graphique `Courbe_Ptf` et `Annee_Ptf`.
 
 ## Contenu du dépôt
 

@@ -4,7 +4,7 @@
 ÉTAPES
 1. Sauvegarder les fichiers avant modification.
 2. Calculer les deux marchés avec model_secto.
-3. Remplir et mettre en forme les classeurs avec excel_output.
+3. Coller les résultats dans les classeurs modèles sans refaire les formats.
 4. Écrire le bilan des dates et des données manquantes.
 
 FLUX
@@ -22,7 +22,7 @@ import pandas as pd
 from local_config import PROJECT_DIR, HISTORY_CONFIG, MACRO_EXCEL_FILE
 from data_utils import normalize_metadata
 from model_secto import SectorModel
-from excel_output import update_workbooks
+from excel_output import compute_portfolio, update_workbooks
 
 
 def backup_inputs(models, output_dir):
@@ -55,6 +55,44 @@ def model_summary(model, new_months):
     missing = latest.loc[latest["score_global_macro"].isna(), "secteur"].tolist()
     if missing:
         text += " Scores agrégés indisponibles : " + ", ".join(missing) + "."
+        if "Fin" in missing:
+            pillars = model.results["pillars"]
+            cycle = latest.loc[latest["secteur"].eq("Fin"), "cycle"].iloc[0]
+            required = {
+                name for name, weight in model.config["macro_adjusted_weights"].items()
+                if name != "Macro" and weight != 0
+            }
+            required.update(
+                name for name, weight in model.config["regime_weights"][cycle].items()
+                if weight != 0
+            )
+            unavailable = [
+                name for name, values in pillars.items()
+                if name in required and pd.isna(values.at[date, "Fin"])
+            ]
+            if unavailable:
+                text += " Fin : pilier(s) absent(s) " + ", ".join(unavailable) + "."
+    benchmark = model.results["benchmark_returns"]["benchmark"]
+    if date not in benchmark.index or pd.isna(benchmark.at[date]):
+        text += f" Rendement du benchmark {model.benchmark_name} absent au {date:%d/%m/%Y}."
+
+    # Une observation mensuelle absente interrompt ensuite toute la courbe cumulée.
+    monthly, cumulative = compute_portfolio(model.results, date)
+    missing_months = monthly.index[monthly["portfolio"].isna()]
+    if len(missing_months):
+        first = missing_months[0]
+        text += f" Courbe portefeuille interrompue dès le {first:%d/%m/%Y}."
+        sectors = model.results["returns"].columns
+        weights = model.results["benchmark_weights"].sort_index().loc[:first].iloc[-1].reindex(sectors)
+        missing_weights = weights.index[weights.isna()].tolist()
+        returns = model.results["returns"].loc[first].reindex(sectors)
+        missing_returns = returns.index[returns.isna()].tolist()
+        if missing_weights:
+            text += " Poids Bench absents : " + ", ".join(missing_weights) + "."
+        if missing_returns:
+            text += " Rendements sectoriels absents : " + ", ".join(missing_returns) + "."
+    elif pd.notna(cumulative["portfolio"].iloc[-1]):
+        text += " Courbe portefeuille : données cumulées disponibles."
     return text
 
 
@@ -74,7 +112,7 @@ def main():
         print(f"Calcul du modèle {model.universe}...", flush=True)
         model.run_production(output_dir=output)
 
-    # 3. Écrire Output, ajouter Reco_histo et actualiser les objets du Dashboard.
+    # 3. Remplacer Output, compléter Reco_histo et rafraîchir les graphiques existants.
     added_months = update_workbooks(models, output)
 
     # 4. Garder un bilan court à lire avant de valider la production.
