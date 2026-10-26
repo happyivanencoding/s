@@ -91,44 +91,38 @@ def compute_portfolio(results, end_date):
         .pivot(index="date", columns="secteur", values="recommendation")
         .sort_index()
     )
-    weights = results["benchmark_weights"].sort_index()
-    returns = results["returns"].sort_index()
-    benchmark = results["benchmark_returns"]["benchmark"]
+    weight_history = results["benchmark_weights"].sort_index()
+    sector_return_history = results["returns"].sort_index()
+    benchmark_returns = results["benchmark_returns"]["benchmark"]
     rows = []
-    for date, sector_returns in returns.loc[:end_date].iterrows():
-        signal = date - pd.offsets.MonthEnd(1)
-        if signal not in recommendation_history.index:
+    for date, sector_returns in sector_return_history.loc[:end_date].iterrows():
+        signal_date = date - pd.offsets.MonthEnd(1)
+        if signal_date not in recommendation_history.index:
             continue
-        available_weights = weights.loc[:date]
+        available_weights = weight_history.loc[:date]
         if available_weights.empty:
             continue
         recommendations = (
-            recommendation_history.loc[signal]
-            .reindex(sector_returns.index)
-            .fillna("Neutral")
+            recommendation_history.loc[signal_date].reindex(sector_returns.index).fillna("Neutral")
         )
-        w = available_weights.iloc[-1].reindex(sector_returns.index)
-        adjusted_weights = w.copy()
-        positive, negative = recommendations.eq("Positive"), recommendations.eq(
-            "Negative"
-        )
+        benchmark_weights = available_weights.iloc[-1].reindex(sector_returns.index)
+        adjusted_weights = benchmark_weights.copy()
+        positive, negative = recommendations.eq("Positive"), recommendations.eq("Negative")
         adjusted_weights[positive] = np.maximum(
-            w[positive] * (1 + PORTFOLIO_TILT), w[positive] + PORTFOLIO_DELTA
+            benchmark_weights[positive] * (1 + PORTFOLIO_TILT), benchmark_weights[positive] + PORTFOLIO_DELTA
         )
         adjusted_weights[negative] = np.minimum(
-            w[negative] * (1 - PORTFOLIO_TILT),
-            (w[negative] - PORTFOLIO_DELTA).clip(lower=0),
+            benchmark_weights[negative] * (1 - PORTFOLIO_TILT),
+            (benchmark_weights[negative] - PORTFOLIO_DELTA).clip(lower=0),
         )
-        if w.isna().any() or sector_returns[adjusted_weights > 0].isna().any():
+        if benchmark_weights.isna().any() or sector_returns[adjusted_weights > 0].isna().any():
             portfolio = np.nan
         else:
-            portfolio = (
-                adjusted_weights * sector_returns
-            ).sum() / adjusted_weights.sum()
+            portfolio = (adjusted_weights * sector_returns).sum() / adjusted_weights.sum()
         rows.append(
             [
                 date,
-                benchmark.get(date, np.nan),
+                benchmark_returns.get(date, np.nan),
                 portfolio,
                 sector_returns[positive].mean(),
                 sector_returns[negative].mean(),
@@ -140,6 +134,7 @@ def compute_portfolio(results, end_date):
     if monthly.empty:
         raise ValueError("Aucun rendement de portefeuille disponible.")
     monthly["long_short"] = monthly["top"] - monthly["bottom"]
+    # Un mois manquant interrompt le cumul plutôt que de créer une performance.
     cumulative = (1 + monthly).cumprod(skipna=False) * 100
     start = monthly.index[0] - pd.offsets.MonthEnd(1)
     cumulative.loc[start] = 100.0
@@ -150,9 +145,7 @@ def output_layout(config):
     """Place les blocs avec deux lignes libres entre eux."""
     n = len(config["sectors"])
     sparkline_count = (
-        sum(
-            spark is not None for _, _, spark in DETAIL_COLUMNS[config["name"]].values()
-        )
+        sum(spark is not None for _, _, spark in DETAIL_COLUMNS[config["name"]].values())
         * n
     )
     measure_count = sum(len(v) for v in config["backtest_variables"].values()) * n
@@ -160,9 +153,7 @@ def output_layout(config):
     history = recommendations + n + 3
     details = history + sparkline_count + 3
     curves = details + measure_count + 3
-    return dict(
-        recommendations=recommendations, history=history, details=details, curves=curves
-    )
+    return dict(recommendations=recommendations, history=history, details=details, curves=curves)
 
 
 def output_cell(address, market):
@@ -188,93 +179,39 @@ def output_cell(address, market):
     return f"{get_column_letter(column_index_from_string(column) - 4)}{row_number - 8}"
 
 
-def build_output(results, config):
-    """Prépare les scores, les historiques et les séries des graphiques."""
+def _set_output_value(grid, address, value):
+    column = "".join(char for char in address if char.isalpha())
+    row_number = int("".join(char for char in address if char.isdigit()))
+    grid.iat[row_number - 1, column_index_from_string(column) - 1] = (
+        "n.a." if pd.isna(value) else value
+    )
+
+
+def _write_output_block(grid, row_number, column, values):
+    values = pd.DataFrame(values).astype(object).where(pd.notna(values), None)
+    start_row, start_column = row_number - 1, column - 1
+    grid.iloc[
+        start_row:start_row + len(values),
+        start_column:start_column + values.shape[1],
+    ] = values.to_numpy()
+
+
+def _month_label(date):
+    months = ['Jan', 'Fev', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Aout', 'Sept', 'Oct', 'Nov', 'Dec']
+    return f"{months[date.month - 1]}-{date.year}"
+
+
+def _write_scorecard(grid, results, config, date):
+    """Remplit les scores du mois et leur comparaison avec le mois précédent."""
     sectors = config["sectors"]
     market = config["name"]
     history = results["history"]
-    if history.empty:
-        raise ValueError("Aucune recommandation complète disponible.")
-    date = history["date"].max()
     previous = date - pd.offsets.MonthEnd(1)
     current = history[history["date"].eq(date)].set_index("secteur")
     previous_data = history[history["date"].eq(previous)].set_index("secteur")
-    monthly, cumulative = compute_portfolio(results, date)
-    layout = output_layout(config)
-    grid = pd.DataFrame(
-        None,
-        index=range(layout["curves"] + len(cumulative)),
-        columns=range(74),
-        dtype=object,
-    )
-
-    def set_cell_value(address, value):
-        column = "".join(c for c in address if c.isalpha())
-        row_number = int("".join(c for c in address if c.isdigit()))
-        grid.iat[row_number - 1, column_index_from_string(column) - 1] = (
-            "n.a." if pd.isna(value) else value
-        )
 
     def scorecard(address, value):
-        set_cell_value(output_cell(address, market), value)
-
-    def write_block(row_number, column, values):
-        values = pd.DataFrame(values).astype(object).where(pd.notna(values), None)
-        grid.iloc[
-            row_number - 1 : row_number - 1 + len(values),
-            column - 1 : column - 1 + values.shape[1],
-        ] = values.to_numpy()
-
-    pillar_date = max(df.index.max() for df in results["pillars"].values())
-    cycle = current["cycle"].iloc[0]
-    rate_signal = current["signal_taux"].iloc[0]
-    regime = {"C": "Contraction", "R": "Recovery", "E": "Expansion", "SD": "Slowdown"}[
-        cycle
-    ]
-    next_month = date + pd.offsets.MonthBegin(1)
-    months = [
-        "Jan",
-        "Fev",
-        "Mar",
-        "Avr",
-        "Mai",
-        "Juin",
-        "Juil",
-        "Aout",
-        "Sept",
-        "Oct",
-        "Nov",
-        "Dec",
-    ]
-
-    def month_label(d):
-        return f"{months[d.month - 1]}-{d.year}"
-
-    write_block(
-        1,
-        1,
-        [
-            ["Marché", market],
-            ["Date modèle", date],
-            ["Derniers piliers", pillar_date],
-            ["Allocation", next_month],
-            ["Cycle", cycle],
-            ["Signal taux", rate_signal],
-            ["Derniers poids benchmark", results["benchmark_weights"].index.max()],
-            ["Derniers rendements", results["returns"].index.max()],
-            ["Mois allocation", month_label(next_month)],
-            ["Mois signal", month_label(date)],
-            ["Classement courant", "Sectors Ranking " + month_label(next_month)],
-            ["Classement précédent", "Sectors Ranking " + month_label(date)],
-            ["Classement macro", "Macro rank - Currently in " + regime],
-            ["Référence", "Bench"],
-            ["Top", monthly.at[date, "top"]],
-            ["Short", -monthly.at[date, "bottom"]],
-            ["Long / Short", monthly.at[date, "long_short"]],
-            ["Portefeuille", monthly.at[date, "portfolio"]],
-            ["Benchmark", monthly.at[date, "benchmark"]],
-        ],
-    )
+        _set_output_value(grid, output_cell(address, market), value)
 
     returns = results["returns"]
     bench = results["benchmark_returns"]["benchmark"]
@@ -298,8 +235,8 @@ def build_output(results, config):
         "BV": "Votes Worst précédents",
         "BW": "Score précédent",
         "BX": "Reco précédente",
-        "BY": month_label(date) + " EQ Performance",
-        "BZ": month_label(date)
+        "BY": _month_label(date) + " EQ Performance",
+        "BZ": _month_label(date)
         + (
             " XSRet vs FTSE World Europe"
             if market == "EU"
@@ -321,10 +258,7 @@ def build_output(results, config):
                 f"{score_col}{row_number}",
                 score.at[date, sector] if score is not None else np.nan,
             )
-            scorecard(
-                f"{raw_column}{row_number}",
-                raw.at[date, sector] if raw is not None else np.nan,
-            )
+            scorecard(f"{raw_column}{row_number}", raw.at[date, sector] if raw is not None else np.nan)
         row = current.loc[sector]
         scorecard(f"BJ{row_number}", len(sectors) + 1 - row["rang_tilt_macro"])
         for column, field in [
@@ -366,60 +300,15 @@ def build_output(results, config):
         scorecard(f"BY{row_number}", ret)
         scorecard(f"BZ{row_number}", ret - bench.at[date])
 
-    recommendation_dates = pd.date_range(end=date, periods=15, freq="ME")
-    recommendations = history.pivot(
-        index="secteur", columns="date", values="recommendation"
-    )
-    write_block(
-        layout["recommendations"],
-        4,
-        [
-            [market + " Reco"]
-            + [d + pd.offsets.MonthBegin(1) for d in recommendation_dates]
-        ],
-    )
-    for i, sector in enumerate(sectors):
-        write_block(
-            layout["recommendations"] + 1 + i,
-            4,
-            [
-                [sector]
-                + [
-                    (
-                        recommendation_codes.get(recommendations.at[sector, d], None)
-                        if d in recommendations.columns
-                        else None
-                    )
-                    for d in recommendation_dates
-                ]
-            ],
-        )
 
-    title = ("Europe" if market == "EU" else "US") + " equity sectors Performance"
-    set_cell_value(f"W{layout['recommendations']}", title)
-    write_block(layout["recommendations"] + 1, 22, [[""] + sectors])
-    series = returns.loc[returns.index <= date].sort_index()
-    horizons = [
-        ("1M", 1),
-        ("3M", 3),
-        ("YTD", date.month),
-        ("1Y", 12),
-        ("3Y", 36),
-        ("5Y", 60),
-    ]
-    for i, (name, period_count) in enumerate(horizons):
-        perf = (1 + series.tail(period_count)).prod(min_count=period_count) - 1
-        write_block(
-            layout["recommendations"] + 2 + i,
-            22,
-            [[name] + [v if pd.notna(v) else "n.a." for v in perf]],
-        )
 
+def _write_indicator_history(grid, results, config, date, layout):
+    """Écrit les mini-historiques puis les mesures détaillées, sans modifier les résultats."""
+    sectors = config["sectors"]
+    details = DETAIL_COLUMNS[config["name"]]
     # Chaque colonne représente un mois, du plus récent au plus ancien.
     history_dates = pd.date_range(end=date, periods=60, freq="ME")[::-1]
-    write_block(
-        layout["history"], 4, [["Variable", "Secteur"] + history_dates.tolist()]
-    )
+    _write_output_block(grid, layout["history"], 4, [["Variable", "Secteur"] + history_dates.tolist()])
     history_row = layout["history"] + 1
     for variable, (_, _, spark_col) in details.items():
         if spark_col is None:
@@ -442,16 +331,10 @@ def build_output(results, config):
         )
         deviation = deviation.reindex(history_dates)
         for sector in sectors:
-            write_block(
-                history_row, 4, [[variable, sector] + deviation[sector].tolist()]
-            )
+            _write_output_block(grid, history_row, 4, [[variable, sector] + deviation[sector].tolist()])
             history_row += 1
 
-    write_block(
-        layout["details"],
-        4,
-        [["Date", "Secteur", "Pilier", "Variable", "Mesure", "Score"]],
-    )
+    _write_output_block(grid, layout["details"], 4, [["Date", "Secteur", "Pilier", "Variable", "Mesure", "Score"]])
     rows = []
     for pillar, variables in config["backtest_variables"].items():
         for variable in variables:
@@ -468,7 +351,103 @@ def build_output(results, config):
                         score.at[date, sector] if score is not None else None,
                     ]
                 )
-    write_block(layout["details"] + 1, 4, rows)
+    _write_output_block(grid, layout["details"] + 1, 4, rows)
+
+
+
+def build_output(results, config):
+    """Prépare les scores, les historiques et les séries des graphiques."""
+    sectors = config["sectors"]
+    market = config["name"]
+    history = results["history"]
+    if history.empty:
+        raise ValueError("Aucune recommandation complète disponible.")
+    date = history["date"].max()
+    current = history[history["date"].eq(date)].set_index("secteur")
+    monthly, cumulative = compute_portfolio(results, date)
+    layout = output_layout(config)
+    grid = pd.DataFrame(
+        None,
+        index=range(layout["curves"] + len(cumulative)),
+        columns=range(74),
+        dtype=object,
+    )
+
+    pillar_date = max(df.index.max() for df in results["pillars"].values())
+    cycle = current["cycle"].iloc[0]
+    rate_signal = current["signal_taux"].iloc[0]
+    regime = {"C": "Contraction", "R": "Recovery", "E": "Expansion", "SD": "Slowdown"}[
+        cycle
+    ]
+    next_month = date + pd.offsets.MonthBegin(1)
+    _write_output_block(grid,
+        1,
+        1,
+        [
+            ["Marché", market],
+            ["Date modèle", date],
+            ["Derniers piliers", pillar_date],
+            ["Allocation", next_month],
+            ["Cycle", cycle],
+            ["Signal taux", rate_signal],
+            ["Derniers poids benchmark", results["benchmark_weights"].index.max()],
+            ["Derniers rendements", results["returns"].index.max()],
+            ["Mois allocation", _month_label(next_month)],
+            ["Mois signal", _month_label(date)],
+            ["Classement courant", "Sectors Ranking " + _month_label(next_month)],
+            ["Classement précédent", "Sectors Ranking " + _month_label(date)],
+            ["Classement macro", "Macro rank - Currently in " + regime],
+            ["Référence", "Bench"],
+            ["Top", monthly.at[date, "top"]],
+            ["Short", -monthly.at[date, "bottom"]],
+            ["Long / Short", monthly.at[date, "long_short"]],
+            ["Portefeuille", monthly.at[date, "portfolio"]],
+            ["Benchmark", monthly.at[date, "benchmark"]],
+        ],
+    )
+
+    _write_scorecard(grid, results, config, date)
+
+    returns = results["returns"]
+    recommendation_codes = {"Negative": -1, "Neutral": 0, "Positive": 1}
+    recommendation_dates = pd.date_range(end=date, periods=15, freq="ME")
+    recommendations = history.pivot(index="secteur", columns="date", values="recommendation")
+    _write_output_block(grid,
+        layout["recommendations"],
+        4,
+        [[market + " Reco"] + [d + pd.offsets.MonthBegin(1) for d in recommendation_dates]],
+    )
+    for i, sector in enumerate(sectors):
+        _write_output_block(grid,
+            layout["recommendations"] + 1 + i,
+            4,
+            [
+                [sector]
+                + [
+                    (
+                        recommendation_codes.get(recommendations.at[sector, d], None)
+                        if d in recommendations.columns
+                        else None
+                    )
+                    for d in recommendation_dates
+                ]
+            ],
+        )
+
+    title = ("Europe" if market == "EU" else "US") + " equity sectors Performance"
+    _set_output_value(grid, f"W{layout['recommendations']}", title)
+    _write_output_block(grid, layout["recommendations"] + 1, 22, [[""] + sectors])
+    series = returns.loc[returns.index <= date].sort_index()
+    horizons = [("1M", 1), ("3M", 3), ("YTD", date.month), ("1Y", 12), ("3Y", 36), ("5Y", 60)]
+    for i, (name, period_count) in enumerate(horizons):
+        perf = (1 + series.tail(period_count)).prod(min_count=period_count) - 1
+        _write_output_block(grid,
+            layout["recommendations"] + 2 + i,
+            22,
+            [[name] + [v if pd.notna(v) else "n.a." for v in perf]],
+        )
+
+    _write_indicator_history(grid, results, config, date, layout)
 
     titles = [
         "Date",
@@ -478,17 +457,14 @@ def build_output(results, config):
         "Worst 3 sectors" if market == "EU" else "CumRet_Bottom",
         "CumRet_Long Short",
     ]
-    write_block(layout["curves"], 4, [titles])
-    write_block(layout["curves"] + 1, 4, cumulative.reset_index().values.tolist())
+    _write_output_block(grid, layout["curves"], 4, [titles])
+    _write_output_block(grid, layout["curves"] + 1, 4, cumulative.reset_index().values.tolist())
     one_year = cumulative.loc[
-        cumulative.index >= date - pd.offsets.MonthEnd(12),
-        ["benchmark", "portfolio", "top", "bottom"],
+        cumulative.index >= date - pd.offsets.MonthEnd(12), ["benchmark", "portfolio", "top", "bottom"],
     ]
     one_year = one_year / one_year.iloc[0] * 100
-    write_block(
-        layout["curves"], 13, [[titles[0], titles[1], titles[2], titles[3], titles[4]]]
-    )
-    write_block(layout["curves"] + 1, 13, one_year.reset_index().values.tolist())
+    _write_output_block(grid, layout["curves"], 13, [[titles[0], titles[1], titles[2], titles[3], titles[4]]])
+    _write_output_block(grid, layout["curves"] + 1, 13, one_year.reset_index().values.tolist())
     return grid, monthly, cumulative
 
 
@@ -500,9 +476,7 @@ def save_excel(results, output_dir, config):
     file_path = directory / f"{config['output_prefix']}_output.xlsx"
     grid.to_excel(file_path, sheet_name="Output", index=False, header=False)
     normalize_metadata(file_path)
-    monthly.to_csv(
-        directory / f"{config['output_prefix']}_performance_portefeuille.csv"
-    )
+    monthly.to_csv(directory / f"{config['output_prefix']}_performance_portefeuille.csv")
     return file_path
 
 
@@ -513,18 +487,14 @@ def excel_value(value):
     if pd.isna(value):
         return None
     if isinstance(value, (pd.Timestamp, datetime)):
-        return (
-            pd.Timestamp(value) - pd.Timestamp("1899-12-30")
-        ).total_seconds() / 86400
+        return (pd.Timestamp(value) - pd.Timestamp("1899-12-30")).total_seconds() / 86400
     return value
 
 
 def append_recommendations(sheet, history, sectors):
     """Ajoute les nouveaux mois sans modifier les recommandations archivées."""
     last_row = sheet.Cells(sheet.Rows.Count, 1).End(-4162).Row
-    last_date = pd.Timestamp("1899-12-30") + pd.Timedelta(
-        days=sheet.Cells(last_row, 1).Value2
-    )
+    last_date = pd.Timestamp("1899-12-30") + pd.Timedelta(days=sheet.Cells(last_row, 1).Value2)
     new_recommendations = history[history["date"] > last_date]
     rows = []
     for date, group in new_recommendations.groupby("date", sort=True):
@@ -559,9 +529,7 @@ def fill_workbook(workbook, results, config, export_file):
     if len(grid) > last_row:
         # Prolonger le format de la dernière ligne pour les nouveaux mois.
         sheet.Range(f"A{last_row}:{last_column}{last_row}").Copy()
-        sheet.Range(f"A{last_row+1}:{last_column}{len(grid)}").PasteSpecial(
-            Paste=-4122
-        )
+        sheet.Range(f"A{last_row+1}:{last_column}{len(grid)}").PasteSpecial(Paste=-4122)
         workbook.Application.CutCopyMode = False
 
     values = tuple(tuple(excel_value(v) for v in row) for row in grid.to_numpy())
@@ -619,9 +587,7 @@ def update_workbooks(models, output_dir):
     with TemporaryDirectory(prefix="sector_excel_") as temporary:
         work_dir = Path(temporary)
         # Utiliser une instance séparée avec une interface Python stable.
-        app = win32com.client.gencache.EnsureDispatch(
-            win32com.client.DispatchEx("Excel.Application")
-        )
+        app = win32com.client.gencache.EnsureDispatch(win32com.client.DispatchEx("Excel.Application"))
         app.Visible = True
         app.DisplayAlerts = False
         app.EnableEvents = False
@@ -641,9 +607,7 @@ def update_workbooks(models, output_dir):
                 export = output_dir / f"{model.config['output_prefix']}_output.xlsx"
                 try:
                     if wb.ReadOnly:
-                        raise RuntimeError(
-                            f"Classeur en lecture seule : {copy_path.name}"
-                        )
+                        raise RuntimeError(f"Classeur en lecture seule : {copy_path.name}")
                     added_months[model.universe] = fill_workbook(
                         wb, model.results, model.config, export
                     )

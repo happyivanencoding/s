@@ -1,21 +1,23 @@
 # Modèle sectoriel EU / US
 
-Le projet calcule les scores et les recommandations EU et US à partir des données enregistrées dans Excel. La commande mensuelle est `Actualiser.bat`.
+Le projet calcule les scores et recommandations sectoriels EU et US. La commande mensuelle reste `Actualiser.bat` ; actualiser_excel.py permet aussi de reconstruire ou de rejouer tout l’historique.
 
 ## Structure et pipeline
 
-```mermaid
+~~~mermaid
 flowchart TD
-    A["Actualiser.bat"] --> B["actualiser_excel.py"]
-    C["local_config.py"] --> D["model_secto.py"]
-    E["Entrées Excel"] --> F["data_utils.py"]
-    H["data_history.xlsx"] <--> F
-    B --> D
-    F --> D
-    D --> G["excel_output.py"]
-    G --> I["Output, Dashboard et Reco_histo"]
-    G --> J["Exports dans output"]
-```
+    A["actualiser_excel.py"] --> B{"Mode"}
+    B --> C["production : Excel + historique existant"]
+    B --> D["rebuild : Excel + historique vierge"]
+    B --> E["replay : historique seul"]
+    C --> F["data_utils.py"]
+    D --> F
+    E --> F
+    F --> G["model_secto.py"]
+    G --> H["excel_output.py"]
+    H --> I["CSV + Output"]
+    C --> J["XLSM : Output, Dashboard, Reco_histo"]
+~~~
 
 | Fichier | Rôle |
 | --- | --- |
@@ -33,6 +35,24 @@ Le début de model_secto.py décrit ses six parties : interface, pipeline, sous-
 Le guide pratique est [Guide_production_modele_sectoriel.docx](docs/Guide_production_modele_sectoriel.docx).
 
 Le guide présente une synthèse opérationnelle en quatre pages et trois annexes : liens entre les fichiers Python, méthode détaillée des facteurs, agrégation des scores et benchmarks. Les adresses Excel restent dans le code.
+
+## Trois modes d'exécution
+
+| Mode | Données utilisées | Destination |
+| --- | --- | --- |
+| `production` (défaut) | Historique figé existant et nouveaux mois enregistrés dans Excel | `output/` et XLSM EU/US |
+| `rebuild` | Toute l'histoire accessible dans les Excel actuels, sans historique initial | Dossier choisi, avec un nouveau `data_history.xlsx` |
+| `replay` | `data_history.xlsx` uniquement ; aucun fichier source Excel ouvert | Dossier choisi, sans modifier l'historique |
+
+~~~bash
+python actualiser_excel.py
+python actualiser_excel.py --mode rebuild --output output/rebuild_octobre
+python actualiser_excel.py --mode replay --output output/replay_test --history output/rebuild_octobre/data_history.xlsx
+~~~
+
+`rebuild` et `replay` exigent `--output`. Choisir un dossier vide pour `rebuild` comme pour `replay` : les résultats d’un essai précédent ne sont pas écrasés. `replay` lit le snapshot indiqué avec `--history` (ou celui de la racine par défaut).
+
+Les deux modes de recherche écrivent les historiques de scores EU/US, les rendements et les grilles Output dans leur propre dossier, sans mettre à jour les XLSM. Ils partagent les mêmes fonctions de calcul que la production. Le résultat reconstruit reflète les valeurs historiques actuellement sauvegardées dans Excel et peut donc différer d'un historique de premières observations.
 
 ## Production mensuelle
 
@@ -58,10 +78,12 @@ pip install -r requirements.txt
 
 L'écriture des classeurs nécessite Excel pour Windows. Les fichiers source sont, par défaut, à côté du code :
 
-- Score_Sectoriel_EU.xlsm
-- Score_Sectoriel_US.xlsm
+- Score_Sectoriel_EU_NEW.xlsm
+- Score_Sectoriel_US_NEW.xlsm
 - maj cycle macro2.xlsx
 - data_history.xlsx
+
+La configuration macro suit les nouvelles colonnes : EU, score U et cycle AB ; US, score Q et cycle U. Les périodes de ces nouveaux signaux sont archivées séparément des anciens.
 
 Les chemins et les paramètres se règlent dans local_config.py. Pour un essai Python ponctuel, SectorModel accepte aussi les arguments excel_file et macro_file.
 

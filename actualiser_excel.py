@@ -15,14 +15,15 @@ Les données fournisseurs doivent être rafraîchies et enregistrées avant le l
 """
 
 from pathlib import Path
+import argparse
 import shutil
 
 import pandas as pd
 
 from local_config import PROJECT_DIR, HISTORY_CONFIG, MACRO_EXCEL_FILE
 from data_utils import normalize_metadata
-from model_secto import SectorModel
-from excel_output import compute_portfolio, update_workbooks
+from model_secto import SectorModel, save_all_outputs
+from excel_output import compute_portfolio, save_excel, update_workbooks
 
 
 def backup_inputs(models, output_dir):
@@ -31,9 +32,7 @@ def backup_inputs(models, output_dir):
     file_paths.append(PROJECT_DIR / HISTORY_CONFIG["file"])
     for file_path in file_paths:
         if (file_path.parent / ("~$" + file_path.name)).exists():
-            raise RuntimeError(
-                f"Fermer le fichier avant la mise à jour : {file_path.name}"
-            )
+            raise RuntimeError(f"Fermer le fichier avant la mise à jour : {file_path.name}")
     backup_dir = output_dir / "avant_actualisation"
     backup_dir.mkdir(exist_ok=True)
     for file_path in file_paths:
@@ -43,84 +42,155 @@ def backup_inputs(models, output_dir):
             normalize_metadata(copy_path)
 
 
+def _missing_financial_pillars(model, date, cycle):
+    required = {
+        name for name, weight in model.config["macro_adjusted_weights"].items()
+        if name != "Macro" and weight != 0
+    }
+    required.update(
+        name for name, weight in model.config["regime_weights"][cycle].items()
+        if weight != 0
+    )
+    return [
+        name for name, values in model.results["pillars"].items()
+        if name in required and pd.isna(values.at[date, "Fin"])
+    ]
+
+
+def _portfolio_summary(results, date):
+    """Décrit le premier mois qui interrompt la série cumulée du portefeuille."""
+    monthly, cumulative = compute_portfolio(results, date)
+    missing_months = monthly.index[monthly["portfolio"].isna()]
+    if len(missing_months) == 0:
+        if pd.notna(cumulative["portfolio"].iloc[-1]):
+            return " Courbe portefeuille : données cumulées disponibles."
+        return ""
+
+    first_month = missing_months[0]
+    sectors = results["returns"].columns
+    weight_history = results["benchmark_weights"].sort_index()
+    weights = weight_history.loc[:first_month].iloc[-1].reindex(sectors)
+    returns = results["returns"].loc[first_month].reindex(sectors)
+    missing_weights = weights.index[weights.isna()].tolist()
+    missing_returns = returns.index[returns.isna()].tolist()
+
+    text = f" Courbe portefeuille interrompue dès le {first_month:%d/%m/%Y}."
+    if missing_weights:
+        text += " Poids Bench absents : " + ", ".join(missing_weights) + "."
+    if missing_returns:
+        text += " Rendements sectoriels absents : " + ", ".join(missing_returns) + "."
+    return text
+
+
 def model_summary(model, new_months):
-    """Indique la date obtenue et les secteurs dont le score reste incomplet."""
+    """Résume le mois produit, les scores absents et la disponibilité des performances."""
     history = model.results["history"]
     date = history["date"].max()
     target_date = pd.Timestamp.today().normalize().replace(day=1) - pd.Timedelta(days=1)
     text = f"{model.universe} : date modèle {date:%d/%m/%Y}, {new_months} nouveau(x) mois archivé(s)."
     if date < target_date:
         text += f" Données en attente pour atteindre le {target_date:%d/%m/%Y}."
+
     latest = history[history["date"].eq(date)]
-    missing = latest.loc[latest["score_global_macro"].isna(), "secteur"].tolist()
-    if missing:
-        text += " Scores agrégés indisponibles : " + ", ".join(missing) + "."
-        if "Fin" in missing:
-            pillars = model.results["pillars"]
+    missing_scores = latest.loc[latest["score_global_macro"].isna(), "secteur"].tolist()
+    if missing_scores:
+        text += " Scores agrégés indisponibles : " + ", ".join(missing_scores) + "."
+        if "Fin" in missing_scores:
             cycle = latest.loc[latest["secteur"].eq("Fin"), "cycle"].iloc[0]
-            required = {
-                name for name, weight in model.config["macro_adjusted_weights"].items()
-                if name != "Macro" and weight != 0
-            }
-            required.update(
-                name for name, weight in model.config["regime_weights"][cycle].items()
-                if weight != 0
-            )
-            unavailable = [
-                name for name, values in pillars.items()
-                if name in required and pd.isna(values.at[date, "Fin"])
-            ]
+            unavailable = _missing_financial_pillars(model, date, cycle)
             if unavailable:
                 text += " Fin : pilier(s) absent(s) " + ", ".join(unavailable) + "."
+
     benchmark = model.results["benchmark_returns"]["benchmark"]
     if date not in benchmark.index or pd.isna(benchmark.at[date]):
         text += f" Rendement du benchmark {model.benchmark_name} absent au {date:%d/%m/%Y}."
-
-    # Une observation mensuelle absente interrompt ensuite toute la courbe cumulée.
-    monthly, cumulative = compute_portfolio(model.results, date)
-    missing_months = monthly.index[monthly["portfolio"].isna()]
-    if len(missing_months):
-        first = missing_months[0]
-        text += f" Courbe portefeuille interrompue dès le {first:%d/%m/%Y}."
-        sectors = model.results["returns"].columns
-        weights = model.results["benchmark_weights"].sort_index().loc[:first].iloc[-1].reindex(sectors)
-        missing_weights = weights.index[weights.isna()].tolist()
-        returns = model.results["returns"].loc[first].reindex(sectors)
-        missing_returns = returns.index[returns.isna()].tolist()
-        if missing_weights:
-            text += " Poids Bench absents : " + ", ".join(missing_weights) + "."
-        if missing_returns:
-            text += " Rendements sectoriels absents : " + ", ".join(missing_returns) + "."
-    elif pd.notna(cumulative["portfolio"].iloc[-1]):
-        text += " Courbe portefeuille : données cumulées disponibles."
-    return text
+    return text + _portfolio_summary(model.results, date)
 
 
-def main():
+def run_production():
+    """Actualise les classeurs et les sorties mensuelles avec l'historique existant."""
     output = PROJECT_DIR / "output"
     output.mkdir(exist_ok=True)
     models = [SectorModel("EU"), SectorModel("US")]
 
-    # 1. Permettre un retour à l'état précédent en cas de problème.
     backup_inputs(models, output)
     macro = Path(MACRO_EXCEL_FILE)
     if macro.parent.resolve() == PROJECT_DIR:
         normalize_metadata(macro)
 
-    # 2. Lire les entrées, calculer les scores et produire les exports courants.
     for model in models:
         print(f"Calcul du modèle {model.universe}...", flush=True)
         model.run_production(output_dir=output)
 
-    # 3. Remplacer Output, compléter Reco_histo et rafraîchir les graphiques existants.
     added_months = update_workbooks(models, output)
-
-    # 4. Garder un bilan court à lire avant de valider la production.
-    rows = [model_summary(m, added_months[m.universe]) for m in models]
+    rows = [model_summary(model, added_months[model.universe]) for model in models]
     text = "Mise à jour terminée à partir des données enregistrées.\n" + "\n".join(rows)
     (output / "actualisation.txt").write_text(text + "\n", encoding="utf-8")
     print(text)
 
 
+def run_history(mode, output_dir, history_file=None):
+    """Exporte une recherche sans toucher aux XLSM ni à l'output mensuel."""
+    if output_dir is None:
+        raise ValueError("Indiquer --output pour rebuild ou replay.")
+    destination = Path(output_dir).expanduser().resolve()
+    if destination in (PROJECT_DIR.resolve(), (PROJECT_DIR / "output").resolve()):
+        raise ValueError("Choisir un dossier de recherche distinct du projet et de output/.")
+    if destination.exists() and any(destination.iterdir()):
+        raise FileExistsError(f"Le dossier des résultats doit être vide : {destination}")
+
+    snapshot = destination / HISTORY_CONFIG["file"]
+    if mode == "rebuild":
+        if history_file is not None:
+            raise ValueError("rebuild repart d'un historique vide : ne pas fournir --history.")
+        if snapshot.exists():
+            raise FileExistsError(f"Historique déjà présent : {snapshot}")
+        history_file = snapshot
+    else:
+        history_file = Path(history_file or PROJECT_DIR / HISTORY_CONFIG["file"]).resolve()
+        if not history_file.is_file():
+            raise FileNotFoundError(f"Historique introuvable : {history_file}")
+        if history_file.parent == destination:
+            raise ValueError("En replay, le dossier des résultats doit être distinct du snapshot.")
+
+    destination.mkdir(parents=True, exist_ok=True)
+    histories = []
+    for market in ("EU", "US"):
+        model = SectorModel(market)
+        print(f"{mode} : {market}...", flush=True)
+        results = model.run(
+            mode=mode,
+            history_file=history_file,
+            fresh_history=(mode == "rebuild" and market == "EU"),
+        )
+
+        save_all_outputs(results, destination, model.config)
+        save_excel(results, destination, model.config)
+
+        table = results["history"].copy()
+        table.insert(0, "marche", market)
+        histories.append(table)
+
+    history = pd.concat(histories, ignore_index=True)
+    history.to_csv(destination / "historique_sectoriel_eu_us.csv", index=False)
+    print(f"{mode} terminé : {destination}")
+
+
+def main(mode="production", output_dir=None, history_file=None):
+    if mode == "production":
+        if output_dir is not None or history_file is not None:
+            raise ValueError("production utilise les entrées et le dossier output du projet.")
+        run_production()
+    elif mode in ("rebuild", "replay"):
+        run_history(mode, output_dir, history_file)
+    else:
+        raise ValueError(f"Mode inconnu : {mode}")
+
+
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Production ou recherche sectorielle EU/US")
+    parser.add_argument("--mode", choices=("production", "rebuild", "replay"), default="production")
+    parser.add_argument("--output", help="Dossier des sorties rebuild/replay")
+    parser.add_argument("--history", help="Snapshot d'entrée pour replay (défaut : data_history.xlsx)")
+    args = parser.parse_args()
+    main(mode=args.mode, output_dir=args.output, history_file=args.history)

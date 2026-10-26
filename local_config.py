@@ -8,14 +8,16 @@ Par défaut, les fichiers Excel sont dans le même dossier que ce fichier.
 from pathlib import Path
 
 PROJECT_DIR = Path(__file__).resolve().parent
-EU_EXCEL_FILE = str(PROJECT_DIR / "Score_Sectoriel_EU.xlsm")
-US_EXCEL_FILE = str(PROJECT_DIR / "Score_Sectoriel_US.xlsm")
+EU_EXCEL_FILE = str(PROJECT_DIR / "Score_Sectoriel_EU_NEW.xlsm")
+US_EXCEL_FILE = str(PROJECT_DIR / "Score_Sectoriel_US_NEW.xlsm")
 MACRO_EXCEL_FILE = str(PROJECT_DIR / "maj cycle macro2.xlsx")
 
 HISTORY_CONFIG = {
     "enabled": True,
     "file": "data_history.xlsx",
 }
+
+# Europe : univers et pondérations
 
 EU_SECTORS = [
     "Materials",
@@ -84,6 +86,8 @@ EU_REGIME_WEIGHTS = {
     },
 }
 
+# rank_order : 0 pour une mesure faible favorable, 1 pour une mesure élevée.
+# Les colonnes sont les débuts des blocs sectoriels des feuilles source.
 EU_HISTORICAL_VARIABLES = {
     "Leverage": {
         "net_debt_ebitda": {
@@ -221,8 +225,8 @@ EU_MACRO_CONFIG = {
     "sheet": "Europe",
     "start_row": 4,
     "date_column": "A",
-    "score_column": "R",
-    "regime_column": "V",
+    "score_column": "U",
+    "regime_column": "AB",
 }
 
 EU_RATE_SIGNAL_CONFIG = {
@@ -234,52 +238,19 @@ EU_RATE_SIGNAL_CONFIG = {
     "percentile_threshold": 0.85,
 }
 
-EU_NO_VOTE_RULES = [
-    {
-        "sector": "Travel & leisure",
-        "start_date": "2011-10-31",
-    },
-]
+EU_NO_VOTE_RULES = [{ "sector": "Travel & leisure", "start_date": "2011-10-31", }]
 
 EU_MACRO_VOTE_WEIGHT = 2
-EU_RATE_OVERLAY_PILLARS = [
-    "Leverage",
-    "Value",
-]
+EU_RATE_OVERLAY_PILLARS = ["Leverage", "Value"]
 
 EU_BACKTEST_VARIABLES = {
-    "Leverage": [
-        "net_debt_ebitda",
-        "fcf_total_debt",
-        "debt_equity",
-    ],
-    "Margin": [
-        "operating_margin",
-        "net_margin",
-        "ebitda_margin",
-    ],
-    "Value": [
-        "price_fcf",
-        "ev_ebitda",
-        "price_sales",
-    ],
-    "Momentum": [
-        "momentum_6m_1m",
-        "momentum_12m_1m",
-        "earnings_revision_ratio",
-    ],
-    "Growth": [
-        "eps_growth",
-        "sales_growth",
-        "ebitda_growth",
-    ],
-    "Volatility": [
-        "volatility_6m",
-        "downside_volatility_18m",
-    ],
+    "Leverage": ["net_debt_ebitda", "fcf_total_debt", "debt_equity"],
+    "Margin": ["operating_margin", "net_margin", "ebitda_margin"],
+    "Value": ["price_fcf", "ev_ebitda", "price_sales"],
+    "Momentum": ["momentum_6m_1m", "momentum_12m_1m", "earnings_revision_ratio"],
+    "Growth": ["eps_growth", "sales_growth", "ebitda_growth"],
+    "Volatility": ["volatility_6m", "downside_volatility_18m"],
 }
-
-# Europe
 
 EU_PILLAR_COMPOSITION = {
     "Leverage": {"default": ["net_debt_ebitda", "fcf_total_debt", "debt_equity"]},
@@ -296,17 +267,10 @@ EU_PILLAR_COMPOSITION = {
         "by_sector": {"Fin": ["eps_growth", "sales_growth"]},
     },
     "Momentum": {
-        "default": [
-            "momentum_6m_1m",
-            "momentum_12m_1m",
-            "earnings_revision_ratio",
-        ],
+        "default": ["momentum_6m_1m", "momentum_12m_1m", "earnings_revision_ratio"],
     },
     "Volatility": {
-        "default": [
-            "volatility_6m",
-            "downside_volatility_18m",
-        ],
+        "default": ["volatility_6m", "downside_volatility_18m"],
     },
 }
 
@@ -324,7 +288,7 @@ EU_TOP_VOTE_PILLARS = list(EU_BASE_WEIGHTS)
 EU_BOTTOM_VOTE_PILLARS = list(EU_BASE_WEIGHTS)
 
 
-# US
+# États-Unis : univers et pondérations
 
 US_SECTORS = [
     "Materials",
@@ -508,17 +472,10 @@ US_PILLAR_COMPOSITION = {
         "by_sector": {"Fin": ["eps_growth", "sales_growth"]},
     },
     "Momentum": {
-        "default": [
-            "momentum_6m_1m",
-            "momentum_12m_1m",
-            "earnings_revision_ratio",
-        ],
+        "default": ["momentum_6m_1m", "momentum_12m_1m", "earnings_revision_ratio"],
     },
     "Volatility": {
-        "default": [
-            "volatility_6m",
-            "downside_volatility_18m",
-        ],
+        "default": ["volatility_6m", "downside_volatility_18m"],
     },
 }
 
@@ -551,8 +508,8 @@ US_MACRO_CONFIG = {
     "sheet": "US",
     "start_row": 4,
     "date_column": "A",
-    "score_column": "Y",
-    "regime_column": "Z",
+    "score_column": "Q",
+    "regime_column": "U",
 }
 
 US_RATE_SIGNAL_CONFIG = {
@@ -574,29 +531,11 @@ US_MACRO_ADJUSTED_WEIGHTS = {
     "Macro": 1 / 6,
 }
 
-US_TOP_VOTE_PILLARS = [
-    "Leverage",
-    "Margin",
-    "Value",
-    "Momentum",
-    "Growth",
-    "Volatility",
-]
+US_TOP_VOTE_PILLARS = ["Leverage", "Margin", "Value", "Momentum", "Growth", "Volatility"]
 
-US_BOTTOM_VOTE_PILLARS = [
-    "Leverage",
-    "Value",
-    "Momentum",
-    "Growth",
-    "Volatility",
-]
+US_BOTTOM_VOTE_PILLARS = ["Leverage", "Value", "Momentum", "Growth", "Volatility"]
 
-US_NO_VOTE_RULES = [
-    {
-        "sector": "Travel & leisure",
-        "start_date": "2011-10-31",
-    },
-]
+US_NO_VOTE_RULES = [{ "sector": "Travel & leisure", "start_date": "2011-10-31", }]
 US_MACRO_VOTE_WEIGHT = 1
 US_RATE_OVERLAY_PILLARS = ["Leverage", "Value"]
 
@@ -610,56 +549,57 @@ US_BACKTEST_VARIABLES = {
 }
 
 
+# Configuration transmise au calcul de chaque marché.
 EU_CONFIG = {
     "name": "EU",
     "output_prefix": "eu",
-    "history_prefix": "",
+    "history_prefix": "",  # Préfixe des clés dans Historique_data pour distinguer les marchés.
     "excel_file": EU_EXCEL_FILE,
     "sectors": EU_SECTORS,
-    "n_top": N_TOP,
-    "n_worst": N_WORST,
-    "history_window": EU_HISTORY_WINDOW,
-    "base_weights": EU_BASE_WEIGHTS,
-    "regime_weights": EU_REGIME_WEIGHTS,
-    "macro_adjusted_weights": EU_MACRO_ADJUSTED_WEIGHTS,
-    "historical_variables": EU_HISTORICAL_VARIABLES,
-    "pillar_composition": EU_PILLAR_COMPOSITION,
-    "pillar_rounding": EU_PILLAR_ROUNDING,
-    "momentum": {**EU_MOMENTUM_CONFIG, "scale_0_10": True},
-    "volatility": EU_VOLATILITY_CONFIG,
-    "macro": EU_MACRO_CONFIG,
-    "rate_signal": EU_RATE_SIGNAL_CONFIG,
-    "top_vote_pillars": EU_TOP_VOTE_PILLARS,
-    "bottom_vote_pillars": EU_BOTTOM_VOTE_PILLARS,
-    "no_vote_rules": EU_NO_VOTE_RULES,
-    "macro_vote_weight": EU_MACRO_VOTE_WEIGHT,
-    "rate_overlay_pillars": EU_RATE_OVERLAY_PILLARS,
-    "backtest_variables": EU_BACKTEST_VARIABLES,
+    "n_top": N_TOP,  # Nombre maximal de secteurs retenus côté Positive.
+    "n_worst": N_WORST,  # Nombre maximal de secteurs retenus côté Negative.
+    "history_window": EU_HISTORY_WINDOW,  # Mois antérieurs pour le rang historique, plus le mois courant.
+    "base_weights": EU_BASE_WEIGHTS,  # Poids des piliers pour le score de base, avant le cycle.
+    "regime_weights": EU_REGIME_WEIGHTS,  # Poids des piliers selon le régime C, R, E ou SD (tilt macro).
+    "macro_adjusted_weights": EU_MACRO_ADJUSTED_WEIGHTS,  # Poids des rangs des piliers et du rang macro dans le score global.
+    "historical_variables": EU_HISTORICAL_VARIABLES,  # Source, sens du rang et méthode H ou H+X de chaque variable.
+    "pillar_composition": EU_PILLAR_COMPOSITION,  # Variables retenues par pilier, avec exceptions par secteur.
+    "pillar_rounding": EU_PILLAR_ROUNDING,  # Arrondi appliqué aux scores des piliers avant classement.
+    "momentum": {**EU_MOMENTUM_CONFIG, "scale_0_10": True},  # Prix et révisions de bénéfices ; rangs ramenés sur 10 en EU.
+    "volatility": EU_VOLATILITY_CONFIG,  # Série de rendements et fenêtres de risque ; nom du benchmark.
+    "macro": EU_MACRO_CONFIG,  # Feuille et colonnes source du score et du cycle macro.
+    "rate_signal": EU_RATE_SIGNAL_CONFIG,  # Taux US 10 ans et seuils du signal On/Off.
+    "top_vote_pillars": EU_TOP_VOTE_PILLARS,  # Piliers qui votent pour les secteurs Top.
+    "bottom_vote_pillars": EU_BOTTOM_VOTE_PILLARS,  # Piliers qui votent pour les secteurs Worst.
+    "no_vote_rules": EU_NO_VOTE_RULES,  # Secteurs et périodes où les votes Top/Worst sont neutralisés.
+    "macro_vote_weight": EU_MACRO_VOTE_WEIGHT,  # Nombre de votes apportés par le rang du tilt macro.
+    "rate_overlay_pillars": EU_RATE_OVERLAY_PILLARS,  # Piliers recevant un vote supplémentaire quand le taux est On.
+    "backtest_variables": EU_BACKTEST_VARIABLES,  # Variables proposées pour les essais, sans remplacer la sélection en production.
 }
 
 US_CONFIG = {
     "name": "US",
     "output_prefix": "us",
-    "history_prefix": "US_",
+    "history_prefix": "US_",  # Préfixe des clés dans Historique_data pour distinguer les marchés.
     "excel_file": US_EXCEL_FILE,
     "sectors": US_SECTORS,
-    "n_top": N_TOP_US,
-    "n_worst": N_WORST_US,
-    "history_window": US_HISTORY_WINDOW,
-    "base_weights": US_BASE_WEIGHTS,
-    "regime_weights": US_REGIME_WEIGHTS,
-    "macro_adjusted_weights": US_MACRO_ADJUSTED_WEIGHTS,
-    "historical_variables": US_HISTORICAL_VARIABLES,
-    "pillar_composition": US_PILLAR_COMPOSITION,
-    "pillar_rounding": US_PILLAR_ROUNDING,
-    "momentum": US_MOMENTUM_CONFIG,
-    "volatility": US_VOLATILITY_CONFIG,
-    "macro": US_MACRO_CONFIG,
-    "rate_signal": US_RATE_SIGNAL_CONFIG,
-    "top_vote_pillars": US_TOP_VOTE_PILLARS,
-    "bottom_vote_pillars": US_BOTTOM_VOTE_PILLARS,
-    "no_vote_rules": US_NO_VOTE_RULES,
-    "macro_vote_weight": US_MACRO_VOTE_WEIGHT,
-    "rate_overlay_pillars": US_RATE_OVERLAY_PILLARS,
-    "backtest_variables": US_BACKTEST_VARIABLES,
+    "n_top": N_TOP_US,  # Nombre maximal de secteurs retenus côté Positive.
+    "n_worst": N_WORST_US,  # Nombre maximal de secteurs retenus côté Negative.
+    "history_window": US_HISTORY_WINDOW,  # Mois antérieurs pour le rang historique, plus le mois courant.
+    "base_weights": US_BASE_WEIGHTS,  # Poids des piliers pour le score de base, avant le cycle.
+    "regime_weights": US_REGIME_WEIGHTS,  # Poids des piliers selon le régime C, R, E ou SD (tilt macro).
+    "macro_adjusted_weights": US_MACRO_ADJUSTED_WEIGHTS,  # Poids des rangs des piliers et du rang macro dans le score global.
+    "historical_variables": US_HISTORICAL_VARIABLES,  # Source, sens du rang et méthode H ou H+X de chaque variable.
+    "pillar_composition": US_PILLAR_COMPOSITION,  # Variables retenues par pilier, avec exceptions par secteur.
+    "pillar_rounding": US_PILLAR_ROUNDING,  # Arrondi appliqué aux scores des piliers avant classement.
+    "momentum": US_MOMENTUM_CONFIG,  # Prix et révisions de bénéfices ; rangs bruts non ramenés sur 10 en US.
+    "volatility": US_VOLATILITY_CONFIG,  # Série de rendements et fenêtres de risque ; nom du benchmark.
+    "macro": US_MACRO_CONFIG,  # Feuille et colonnes source du score et du cycle macro.
+    "rate_signal": US_RATE_SIGNAL_CONFIG,  # Taux US 10 ans et seuils du signal On/Off.
+    "top_vote_pillars": US_TOP_VOTE_PILLARS,  # Piliers qui votent pour les secteurs Top.
+    "bottom_vote_pillars": US_BOTTOM_VOTE_PILLARS,  # Piliers qui votent pour les secteurs Worst.
+    "no_vote_rules": US_NO_VOTE_RULES,  # Secteurs et périodes où les votes Top/Worst sont neutralisés.
+    "macro_vote_weight": US_MACRO_VOTE_WEIGHT,  # Nombre de votes apportés par le rang du tilt macro.
+    "rate_overlay_pillars": US_RATE_OVERLAY_PILLARS,  # Piliers recevant un vote supplémentaire quand le taux est On.
+    "backtest_variables": US_BACKTEST_VARIABLES,  # Variables proposées pour les essais, sans remplacer la sélection en production.
 }

@@ -27,8 +27,10 @@ NS = {
     "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
 }
 S = "{" + NS["s"] + "}"
+HISTORY_SHEET = "Historique_data"
 _history = None
 _history_changed = False
+_history_file = None
 
 # 1. Fichiers et dates
 
@@ -44,10 +46,7 @@ def open_workbooks(excel_file=None, macro_file=None):
 
 def is_number(x):
     """Indique si une cellule contient une valeur numérique exploitable."""
-    return isinstance(
-        x,
-        (int, float, np.integer, np.floating),
-    ) and not pd.isna(x)
+    return isinstance(x, (int, float, np.integer, np.floating)) and not pd.isna(x)
 
 
 def convert_excel_date(x):
@@ -59,10 +58,7 @@ def convert_excel_date(x):
         return pd.Timestamp(x)
 
     if is_number(x):
-        return pd.Timestamp("1899-12-30") + pd.to_timedelta(
-            float(x),
-            unit="D",
-        )
+        return pd.Timestamp("1899-12-30") + pd.to_timedelta(float(x), unit="D")
 
     return pd.NaT
 
@@ -98,23 +94,19 @@ def normalize_monthly_index(df):
 # 2. Historique mensuel
 
 
-HISTORY_SHEET = "Historique_data"
-
-
 def history_path():
     """Retourne le fichier Excel qui contient tout l'historique."""
     return Path(__file__).resolve().parent / HISTORY_CONFIG["file"]
 
 
-def load_history(reload=False):
-    """Charge l'historique Excel une fois par exécution."""
-    global _history, _history_changed
-    if _history is None or reload:
-        file_path = history_path()
+def load_history(reload=False, file_path=None, fresh=False):
+    """Charge le snapshot choisi, ou initialise un historique vide pour rebuild."""
+    global _history, _history_changed, _history_file
+    if _history is None or reload or fresh:
+        _history_file = Path(file_path) if file_path is not None else history_path()
         _history = (
-            pd.read_excel(file_path, sheet_name=HISTORY_SHEET)
-            if file_path.exists()
-            else pd.DataFrame()
+            pd.DataFrame() if fresh or not _history_file.exists()
+            else pd.read_excel(_history_file, sheet_name=HISTORY_SHEET)
         )
         for column in ("date", "date_source"):
             if column in _history:
@@ -128,7 +120,7 @@ def save_history():
     global _history_changed
     if not _history_changed:
         return
-    file_path = history_path()
+    file_path = _history_file or history_path()
     temporary = file_path.with_name(file_path.stem + ".tmp.xlsx")
     _history.sort_values(["series_key", "date"], ascending=[True, False]).to_excel(
         temporary, sheet_name=HISTORY_SHEET, index=False, freeze_panes=(1, 3)
@@ -139,174 +131,137 @@ def save_history():
 
 
 def freeze_history(df, source_dates, key):
-    """
-    Conserve la première observation enregistrée pour chaque mois.
-    Une révision ultérieure du fichier source ne remplace pas le mois existant.
-    """
-    result = normalize_monthly_index(df)
+    """Conserve la première ligne mensuelle d'une série, y compris ses valeurs absentes.
 
+    L'entrée et la sortie ont les mois en index et les secteurs en colonnes.
+    Seul l'archivage passe au format long (series_key, date, date_source).
+    """
+    global _history, _history_changed
+    monthly = normalize_monthly_index(df)
     source_dates = pd.Series(
-        [convert_excel_date(x) for x in source_dates],
-        index=[normalize_month_end(x) for x in source_dates],
+        [convert_excel_date(date) for date in source_dates],
+        index=[normalize_month_end(date) for date in source_dates],
         name="date_source",
     )
     source_dates = source_dates[~source_dates.index.duplicated(keep="first")]
 
-    current = result.copy()
-    current.insert(
-        0,
-        "date_source",
-        source_dates.reindex(current.index).values,
-    )
-    current.insert(0, "date", current.index)
-    current.insert(0, "series_key", key)
-    current = current.reset_index(drop=True)
-
-    data_columns = list(df.columns)
-    current = current[current[data_columns].notna().any(axis=1)]
+    observations = monthly.copy()
+    observations.insert(0, "date_source", source_dates.reindex(observations.index).values)
+    observations.insert(0, "date", observations.index)
+    observations.insert(0, "series_key", key)
+    observations = observations.reset_index(drop=True)
+    columns = list(df.columns)
+    observations = observations[observations[columns].notna().any(axis=1)]
 
     if not HISTORY_CONFIG.get("enabled", True):
-        return result
+        return monthly
 
-    global _history, _history_changed
     history = load_history()
     existing_dates = (
         history.loc[history["series_key"] == key, "date"]
-        if not history.empty
-        else pd.Series(dtype="datetime64[ns]")
+        if not history.empty else pd.Series(dtype="datetime64[ns]")
     )
-    new_months = current.loc[~current["date"].isin(existing_dates)]
+    new_months = observations.loc[~observations["date"].isin(existing_dates)]
     if not new_months.empty:
         history = pd.concat([history, new_months], ignore_index=True, sort=False)
         _history = history
         _history_changed = True
-
     if history.empty:
-        return result
+        return monthly
 
-    series = history[history["series_key"] == key].copy()
-
-    series = series.sort_values(
-        "date",
-        ascending=False,
-    ).set_index("date")
-
-    columns = list(df.columns)
-
+    archived = history[history["series_key"] == key].copy()
+    archived = archived.sort_values("date", ascending=False).set_index("date")
     for column in columns:
-        if column not in series.columns:
-            series[column] = np.nan
+        if column not in archived.columns:
+            archived[column] = np.nan
+    return archived[columns].copy()
 
-    return series[columns].copy()
+
+def read_history_series(key, columns):
+    """Restitue une série mensuelle enregistrée, sans lire les fichiers source."""
+    history = load_history()
+    series = history.loc[history["series_key"].eq(key)].copy() if not history.empty else pd.DataFrame()
+    if series.empty:
+        raise ValueError(f"Série absente de l'historique : {key}")
+    missing = [column for column in columns if column not in series]
+    if missing:
+        raise ValueError(f"Colonnes absentes de {key} : {', '.join(missing)}")
+    return series.sort_values("date", ascending=False).set_index("date")[columns].copy()
 
 
 # 3. Blocs de données
 
 
 def read_sector_block(
-    ws,
-    start_column,
-    sectors=None,
-    key_prefix="",
-    start_row=8,
-    date_column="A",
+    ws, start_column, sectors=None, key_prefix="", start_row=8, date_column="A",
+    sheet_name=None,
 ):
-    """Lit un bloc sectoriel puis fige son historique mensuel."""
+    """Lit le bloc Excel ou la série figée correspondante."""
     sectors = sectors or EU_CONFIG["sectors"]
-
-    col_start = column_index_from_string(start_column)
-    col_date = column_index_from_string(date_column)
-
-    dates = []
-    source_dates = []
-    data = []
+    if ws is None:
+        return read_history_series(f"{key_prefix}{sheet_name}_{start_column}", sectors)
+    first_column = column_index_from_string(start_column)
+    date_column_number = column_index_from_string(date_column)
+    source_dates, rows = [], []
     row_number = start_row
 
     while True:
-        raw_date = ws.cell(row_number, col_date).value
-
+        raw_date = ws.cell(row_number, date_column_number).value
         if not is_excel_date(raw_date):
             break
-
         values = []
-
-        for j in range(len(sectors)):
-            value = ws.cell(
-                row_number,
-                col_start + j,
-            ).value
+        for offset in range(len(sectors)):
+            value = ws.cell(row_number, first_column + offset).value
             values.append(float(value) if is_number(value) else np.nan)
-
-        source_date = convert_excel_date(raw_date)
-        dates.append(source_date)
-        source_dates.append(source_date)
-        data.append(values)
+        source_dates.append(convert_excel_date(raw_date))
+        rows.append(values)
         row_number += 1
 
-    df = pd.DataFrame(
-        data,
-        index=dates,
-        columns=sectors,
-    )
-
+    raw = pd.DataFrame(rows, index=source_dates, columns=sectors)
     key = f"{key_prefix}{ws.title}_{start_column}"
-    return freeze_history(
-        df,
-        source_dates,
-        key,
-    )
+    return freeze_history(raw, source_dates, key)
 
 
 def read_return_indices(ws, sectors):
-    """Lit les indices de rendement total avant tout calcul Excel."""
-    rows = []
-    dates = []
+    """Lit les niveaux d'indice : benchmark puis secteurs, dates décroissantes."""
+    dates, rows = [], []
     for row_number in range(7, ws.max_row + 1):
         date = ws.cell(row_number, 1).value
         if not is_excel_date(date):
             break
+        values = []
+        for column in range(2, len(sectors) + 3):
+            value = ws.cell(row_number, column).value
+            values.append(float(value) if is_number(value) else np.nan)
         dates.append(convert_excel_date(date))
-        rows.append(
-            [
-                (
-                    float(ws.cell(row_number, column).value)
-                    if is_number(ws.cell(row_number, column).value)
-                    else np.nan
-                )
-                for column in range(2, len(sectors) + 3)
-            ]
-        )
-    return pd.DataFrame(rows, index=dates, columns=["benchmark"] + sectors).sort_index(
-        ascending=False
-    )
+        rows.append(values)
+
+    indices = pd.DataFrame(rows, index=dates, columns=["benchmark"] + sectors)
+    return indices.sort_index(ascending=False)
 
 
-def read_sector_returns(ws, volatility_config=None, sectors=None, key_prefix=""):
-    """Calcule les rendements mensuels à partir des indices source."""
+def read_sector_returns(ws, volatility_config=None, sectors=None, key_prefix="", sheet_name=None):
+    """Retourne les rendements sectoriels depuis Excel ou le snapshot figé."""
     sectors = sectors or EU_CONFIG["sectors"]
+    if ws is None:
+        return read_history_series(f"{key_prefix}{sheet_name}_returns", sectors)
     indices = read_return_indices(ws, sectors)
     returns = indices / indices.shift(-1) - 1
-    return freeze_history(
-        returns[sectors],
-        returns.index,
-        f"{key_prefix}{ws.title}_returns",
-    )
+    return freeze_history(returns[sectors], returns.index, f"{key_prefix}{ws.title}_returns")
 
 
-def read_benchmark_returns(ws, volatility_config=None, key_prefix=""):
-    """Calcule les rendements du benchmark sans changer sa source."""
+def read_benchmark_returns(ws, volatility_config=None, key_prefix="", sheet_name=None):
+    """Retourne le rendement benchmark depuis Excel ou le snapshot figé."""
+    if ws is None:
+        return read_history_series(f"{key_prefix}{sheet_name}_benchmark", ["benchmark"])
     sectors = US_CONFIG["sectors"] if key_prefix == "US_" else EU_CONFIG["sectors"]
     indices = read_return_indices(ws, sectors)
     returns = indices[["benchmark"]] / indices[["benchmark"]].shift(-1) - 1
-    return freeze_history(
-        returns,
-        returns.index,
-        f"{key_prefix}{ws.title}_benchmark",
-    )
+    return freeze_history(returns, returns.index, f"{key_prefix}{ws.title}_benchmark")
 
 
 def extend_macro(ws, cfg, regimes):
-    """Prolonge les résultats macro avec les règles du classeur."""
+    """Prolonge les scores dans le classeur en mémoire ; aucun fichier n'est enregistré."""
     score_col = column_index_from_string(cfg["score_column"])
     cycle_col = column_index_from_string(cfg["regime_column"])
     rows = [
@@ -357,17 +312,10 @@ def extend_macro(ws, cfg, regimes):
                 )
                 else read_data("V", r - 1)
             )
-            for col, value in zip(
-                ["R", "S", "T", "U", "V"], [score, simple, filtered, pivot, regime]
-            ):
+            for col, value in zip(["R", "S", "T", "U", "V"], [score, simple, filtered, pivot, regime]):
                 ws[f"{col}{r}"] = value
         else:
-            values = [
-                read_data("M", r),
-                read_data("J", r),
-                read_data("G", r - 1),
-                read_data("D", r),
-            ]
+            values = [read_data("M", r), read_data("J", r), read_data("G", r - 1), read_data("D", r)]
             if not all(is_number(v) for v in values):
                 break
             score = sum(v * weights for v, weights in zip(values, [0.3, 0.3, 0.3, 0.1]))
@@ -375,120 +323,64 @@ def extend_macro(ws, cfg, regimes):
             ws[f"Z{r}"] = cycle(score, read_data("Y", r - 1))
 
 
-def read_macro_data(
-    macro_workbook,
-    macro_config=None,
-    regime_weights=None,
-    key_prefix="",
-):
-    """Lit le macro score et le régime du marché."""
+def read_macro_data(macro_workbook, macro_config=None, regime_weights=None, key_prefix=""):
+    """Lit score et cycle, puis renvoie les mois par ordre chronologique."""
     cfg = macro_config or EU_CONFIG["macro"]
     regime_weights = regime_weights or EU_CONFIG["regime_weights"]
+    key = f"{key_prefix}macro_outputs_{cfg['score_column']}_{cfg['regime_column']}"
+    if macro_workbook is None:
+        return read_history_series(key, ["macro_score", "cycle"]).sort_index()
+    sheet = macro_workbook[cfg["sheet"]]
 
-    ws = macro_workbook[cfg["sheet"]]
-    extend_macro(ws, cfg, regime_weights)
-
+    # Les signaux du fichier macro sont calculés et enregistrés dans Excel.
+    date_column = column_index_from_string(cfg["date_column"])
+    score_column = column_index_from_string(cfg["score_column"])
+    regime_column = column_index_from_string(cfg["regime_column"])
+    source_dates, rows = [], []
     row_number = cfg["start_row"]
-    col_date = column_index_from_string(cfg["date_column"])
-    col_score = column_index_from_string(cfg["score_column"])
-    col_regime = column_index_from_string(cfg["regime_column"])
-
-    source_dates = []
-    data = []
-
     while True:
-        raw_date = ws.cell(
-            row_number,
-            col_date,
-        ).value
-
+        raw_date = sheet.cell(row_number, date_column).value
         if not is_excel_date(raw_date):
             break
-
-        score = ws.cell(
-            row_number,
-            col_score,
-        ).value
-        regime = ws.cell(
-            row_number,
-            col_regime,
-        ).value
-        source_date = convert_excel_date(raw_date)
-
-        source_dates.append(source_date)
-        data.append(
-            {
-                "macro_score": (float(score) if is_number(score) else np.nan),
-                "cycle": (regime if regime in regime_weights else None),
-            }
-        )
+        score = sheet.cell(row_number, score_column).value
+        regime = sheet.cell(row_number, regime_column).value
+        source_dates.append(convert_excel_date(raw_date))
+        rows.append({
+            "macro_score": float(score) if is_number(score) else np.nan,
+            "cycle": regime if regime in regime_weights else None,
+        })
         row_number += 1
 
-    df = pd.DataFrame(
-        data,
-        index=source_dates,
-    )
-
-    df = freeze_history(
-        df,
-        source_dates,
-        f"{key_prefix}macro_outputs",
-    )
-
-    return df.sort_index()
+    macro = pd.DataFrame(rows, index=source_dates)
+    # Deux couples de colonnes sont deux séries distinctes dans l'historique.
+    archived = freeze_history(macro, source_dates, key)
+    return archived.sort_index()
 
 
-def read_us10y(
-    sector_workbook,
-    signal_config=None,
-    key_prefix="",
-):
-    """Lit la série US 10Y utilisée par le rate overlay."""
+def read_us10y(sector_workbook, signal_config=None, key_prefix=""):
+    """Lit le taux US 10 ans et renvoie son historique par date croissante."""
     cfg = signal_config or EU_CONFIG["rate_signal"]
-    ws = sector_workbook[cfg["sheet"]]
-
+    key = f"{key_prefix}signal_taux_us10y"
+    if sector_workbook is None:
+        return read_history_series(key, ["us10y"]).sort_index()
+    sheet = sector_workbook[cfg["sheet"]]
+    date_column = column_index_from_string(cfg["date_column"])
+    rate_column = column_index_from_string(cfg["us10y_column"])
+    source_dates, rows = [], []
     row_number = cfg["start_row"]
-    col_date = column_index_from_string(cfg["date_column"])
-    col_us10y = column_index_from_string(cfg["us10y_column"])
-
-    source_dates = []
-    data = []
 
     while True:
-        raw_date = ws.cell(
-            row_number,
-            col_date,
-        ).value
-
+        raw_date = sheet.cell(row_number, date_column).value
         if not is_excel_date(raw_date):
             break
-
-        rate = ws.cell(
-            row_number,
-            col_us10y,
-        ).value
-        source_date = convert_excel_date(raw_date)
-
-        source_dates.append(source_date)
-        data.append(
-            {
-                "us10y": (float(rate) if is_number(rate) else np.nan),
-            }
-        )
+        rate = sheet.cell(row_number, rate_column).value
+        source_dates.append(convert_excel_date(raw_date))
+        rows.append({"us10y": float(rate) if is_number(rate) else np.nan})
         row_number += 1
 
-    df = pd.DataFrame(
-        data,
-        index=source_dates,
-    )
-
-    df = freeze_history(
-        df,
-        source_dates,
-        f"{key_prefix}signal_taux_us10y",
-    )
-
-    return df.sort_index()
+    rates = pd.DataFrame(rows, index=source_dates)
+    archived = freeze_history(rates, source_dates, key)
+    return archived.sort_index()
 
 
 # 4. Format natif des classeurs
@@ -527,9 +419,7 @@ def normalize_metadata(file_path):
                     date_format = element.get("formatCode")
                     if "[$-" not in date_format:
                         element.set("formatCode", "[$-040C]" + date_format)
-                elif name == "theme" and character_pattern.search(
-                    element.get("name", "")
-                ):
+                elif name == "theme" and character_pattern.search(element.get("name", "")):
                     element.set("name", "Office")
                 elif name == "font" and element.get("script") in font_names:
                     font_name = element.get("typeface", "")
@@ -540,23 +430,16 @@ def normalize_metadata(file_path):
                             + (" Light" if font_name.endswith(" Light") else ""),
                         )
             if path == "docProps/app.xml":
-                labels = document.xpath(
-                    "//*[local-name()='HeadingPairs']//*[local-name()='lpstr']"
-                )
+                labels = document.xpath("//*[local-name()='HeadingPairs']//*[local-name()='lpstr']")
                 for element, name in zip(labels, ["Worksheets", "Named Ranges"]):
                     element.text = name
-            changes[path] = ET.tostring(
-                document, encoding="UTF-8", xml_declaration=True
-            )
+            changes[path] = ET.tostring(document, encoding="UTF-8", xml_declaration=True)
         if not changes:
             return
         temporary = file_path.with_name(file_path.stem + ".langue" + file_path.suffix)
         with ZipFile(temporary, "w", ZIP_DEFLATED) as output:
             for element in archive.infolist():
-                output.writestr(
-                    element,
-                    changes.get(element.filename, archive.read(element.filename)),
-                )
+                output.writestr(element, changes.get(element.filename, archive.read(element.filename)))
     temporary.replace(file_path)
 
 
@@ -604,27 +487,19 @@ def preserve_inputs(source, destination):
                     ET.SubElement(cell, S + "v").text = text
             sheet = ET.fromstring(after.read(sheets_after[name]))
             sheet.replace(sheet.find("s:sheetData", NS), data)
-            changes[sheets_after[name]] = ET.tostring(
-                sheet, encoding="UTF-8", xml_declaration=True
-            )
+            changes[sheets_after[name]] = ET.tostring(sheet, encoding="UTF-8", xml_declaration=True)
         # Excel peut modifier les axes pendant le chargement des données.
         for path in before.namelist():
             if not re.fullmatch(r"xl/charts/chart\d+\.xml", path):
                 continue
             original = ET.fromstring(before.read(path))
             new = ET.fromstring(after.read(path))
-            for cache in original.xpath(
-                "//*[local-name()='numCache' or local-name()='strCache']"
-            ):
+            for cache in original.xpath("//*[local-name()='numCache' or local-name()='strCache']"):
                 position = original.getroottree().getpath(cache)
-                updated = new.xpath(
-                    position, namespaces={k: v for k, v in cache.nsmap.items() if k}
-                )
+                updated = new.xpath(position, namespaces={k: v for k, v in cache.nsmap.items() if k})
                 if updated:
                     cache.getparent().replace(cache, deepcopy(updated[0]))
-            changes[path] = ET.tostring(
-                original, encoding="UTF-8", xml_declaration=True
-            )
+            changes[path] = ET.tostring(original, encoding="UTF-8", xml_declaration=True)
         for path in before.namelist():
             if re.fullmatch(r"xl/charts/(style|colors)\d+\.xml", path):
                 changes[path] = before.read(path)
@@ -634,19 +509,13 @@ def preserve_inputs(source, destination):
             calculation_settings.set("calcMode", "auto")
             calculation_settings.set("fullCalcOnLoad", "0")
             calculation_settings.set("forceFullCalc", "0")
-        changes["xl/workbook.xml"] = ET.tostring(
-            workbook_xml, encoding="UTF-8", xml_declaration=True
-        )
+        changes["xl/workbook.xml"] = ET.tostring(workbook_xml, encoding="UTF-8", xml_declaration=True)
         for path in ("xl/_rels/workbook.xml.rels", "[Content_Types].xml"):
             document = ET.fromstring(after.read(path))
             for element in list(document):
-                if "calcChain" in element.get("Type", "") or "calcChain" in element.get(
-                    "PartName", ""
-                ):
+                if "calcChain" in element.get("Type", "") or "calcChain" in element.get("PartName", ""):
                     document.remove(element)
-            changes[path] = ET.tostring(
-                document, encoding="UTF-8", xml_declaration=True
-            )
+            changes[path] = ET.tostring(document, encoding="UTF-8", xml_declaration=True)
         temporary = destination.with_suffix(".tmp.xlsm")
         with ZipFile(temporary, "w", ZIP_DEFLATED) as output:
             for element in after.infolist():

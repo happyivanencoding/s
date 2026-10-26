@@ -137,6 +137,25 @@ def statistics(backtest):
     }
 
 
+def _plot_heatmap(matrix, sectors, columns, title, figsize):
+    """Dessine la même échelle et les annotations pour piliers et variables."""
+    fig, ax = plt.subplots(figsize=figsize)
+    image = ax.imshow(matrix, aspect="auto", vmin=0, vmax=max(10, np.nanmax(matrix)))
+    ax.set_xticks(range(len(columns)))
+    ax.set_xticklabels(columns)
+    ax.set_yticks(range(len(sectors)))
+    ax.set_yticklabels(sectors)
+    ax.set_title(title)
+
+    for i in range(len(sectors)):
+        for j in range(len(columns)):
+            value = matrix[i, j]
+            label = "-" if np.isnan(value) else f"{value:.1f}"
+            ax.text(j, i, label, ha="center", va="center", fontsize=8)
+    fig.colorbar(image, ax=ax, label="Score")
+    return fig, ax
+
+
 class SectorResearch:
     """Fournit les visualisations et backtests d'un SectorModel."""
 
@@ -180,165 +199,56 @@ class SectorResearch:
         available = dates[dates <= target]
 
         if len(available) == 0:
-            raise ValueError(f"Aucune date disponible avant " f"{target.date()}.")
+            raise ValueError(f"Aucune date disponible avant {target.date()}.")
 
         return available[-1]
 
-    def plot_pillars(
-        self,
-        date=None,
-        pillars=None,
-        figsize=(10, 7),
-    ):
+    def plot_pillars(self, date=None, pillars=None, figsize=(10, 7)):
         """Affiche les scores des piliers par secteur."""
         results = self._results()
         date = self._pillar_date(date)
-
         if pillars is None:
             pillars = list(self.config["base_weights"])
-
         unknown = [pillar for pillar in pillars if pillar not in results["pillars"]]
-
         if unknown:
             raise ValueError(f"Piliers inconnus : {unknown}")
 
         sectors = self.config["sectors"]
-        matrix = np.array(
-            [
-                [
-                    results["pillars"][pillar].at[
-                        date,
-                        sector,
-                    ]
-                    for pillar in pillars
-                ]
-                for sector in sectors
-            ],
-            dtype=float,
-        )
-
-        vmax = max(
-            10,
-            np.nanmax(matrix),
-        )
-
-        fig, ax = plt.subplots(figsize=figsize)
-        image = ax.imshow(
-            matrix,
-            aspect="auto",
-            vmin=0,
-            vmax=vmax,
-        )
-
-        ax.set_xticks(range(len(pillars)))
-        ax.set_xticklabels(pillars)
-        ax.set_yticks(range(len(sectors)))
-        ax.set_yticklabels(sectors)
-        ax.set_title(f"{self.universe} - Scores des piliers " f"au {date.date()}")
-
-        for i in range(len(sectors)):
-            for j in range(len(pillars)):
-                value = matrix[i, j]
-                label = "-" if np.isnan(value) else f"{value:.1f}"
-                ax.text(
-                    j,
-                    i,
-                    label,
-                    ha="center",
-                    va="center",
-                    fontsize=8,
-                )
-
-        fig.colorbar(
-            image,
-            ax=ax,
-            label="Score",
+        matrix = np.array([
+            [results["pillars"][pillar].at[date, sector] for pillar in pillars]
+            for sector in sectors
+        ], dtype=float)
+        fig, ax = _plot_heatmap(
+            matrix, sectors, pillars, f"{self.universe} - Scores des piliers au {date.date()}", figsize
         )
         fig.tight_layout()
-
         return fig, ax
 
-    def plot_variables(
-        self,
-        pillar,
-        variables=None,
-        date=None,
-        figsize=(9, 7),
-    ):
+    def plot_variables(self, pillar, variables=None, date=None, figsize=(9, 7)):
         """Affiche les variables sélectionnées d'un pilier."""
         results = self._results()
         date = self._pillar_date(date)
-
         active = self.variables(pillar)
-
         if variables is None:
             variables = active
-
         unknown = [variable for variable in variables if variable not in active]
-
         if unknown:
-            raise ValueError(f"Variables inconnues pour " f"{pillar} : {unknown}")
+            raise ValueError(f"Variables inconnues pour {pillar} : {unknown}")
 
         sectors = self.config["sectors"]
-        matrix = []
-
+        rows = []
         for sector in sectors:
-            row = []
-
+            values = []
             for variable in variables:
                 score = results["variable_scores"][variable]
-
-                row.append(score.at[date, sector] if date in score.index else np.nan)
-
-            matrix.append(row)
-
-        matrix = np.array(
-            matrix,
-            dtype=float,
+                values.append(score.at[date, sector] if date in score.index else np.nan)
+            rows.append(values)
+        matrix = np.array(rows, dtype=float)
+        fig, ax = _plot_heatmap(
+            matrix, sectors, variables, f"{self.universe} - {pillar} au {date.date()}", figsize
         )
-        vmax = max(
-            10,
-            np.nanmax(matrix),
-        )
-
-        fig, ax = plt.subplots(figsize=figsize)
-        image = ax.imshow(
-            matrix,
-            aspect="auto",
-            vmin=0,
-            vmax=vmax,
-        )
-
-        ax.set_xticks(range(len(variables)))
-        ax.set_xticklabels(
-            variables,
-            rotation=20,
-            ha="right",
-        )
-        ax.set_yticks(range(len(sectors)))
-        ax.set_yticklabels(sectors)
-        ax.set_title(f"{self.universe} - {pillar} " f"au {date.date()}")
-
-        for i in range(len(sectors)):
-            for j in range(len(variables)):
-                value = matrix[i, j]
-                label = "-" if np.isnan(value) else f"{value:.1f}"
-                ax.text(
-                    j,
-                    i,
-                    label,
-                    ha="center",
-                    va="center",
-                    fontsize=8,
-                )
-
-        fig.colorbar(
-            image,
-            ax=ax,
-            label="Score",
-        )
+        ax.set_xticklabels(variables, rotation=20, ha="right")
         fig.tight_layout()
-
         return fig, ax
 
     def plot_global_rank(
@@ -361,21 +271,16 @@ class SectorResearch:
             available = dates[dates <= target]
 
             if len(available) == 0:
-                raise ValueError(f"Aucune recommandation avant " f"{target.date()}.")
+                raise ValueError(f"Aucune recommandation avant {target.date()}.")
 
             date = available.iloc[-1]
 
         row = history[history["date"] == date].sort_values("rang_global")
 
         fig, ax = plt.subplots(figsize=figsize)
-        ax.barh(
-            row["secteur"],
-            row["rang_global"],
-        )
-        ax.set_xlabel(
-            f"Rang final - 1 = Worst, " f"{len(self.config['sectors'])} = Best"
-        )
-        ax.set_title(f"{self.universe} - Rang final " f"au {date.date()}")
+        ax.barh(row["secteur"], row["rang_global"])
+        ax.set_xlabel(f"Rang final - 1 = Worst, " f"{len(self.config['sectors'])} = Best")
+        ax.set_title(f"{self.universe} - Rang final au {date.date()}")
         fig.tight_layout()
 
         return fig, ax
@@ -402,7 +307,7 @@ class SectorResearch:
         unknown = [variable for variable in variables if variable not in active]
 
         if unknown:
-            raise ValueError(f"Variables inconnues pour " f"{pillar} : {unknown}")
+            raise ValueError(f"Variables inconnues pour {pillar} : {unknown}")
 
         forward_returns = prepare_forward_returns(results["returns"])
         benchmark_returns = prepare_forward_returns(results["benchmark_returns"])[
@@ -423,7 +328,7 @@ class SectorResearch:
             backtest = backtest_score(
                 score,
                 forward_returns,
-                benchmark_returns=(benchmark_returns),
+                benchmark_returns=benchmark_returns,
                 top_n=top_n,
                 start=start,
                 end=end,
@@ -436,109 +341,91 @@ class SectorResearch:
             rows.append(row)
 
         summary = (
-            pd.DataFrame(rows)
-            .sort_values(
-                "sharpe_ls",
-                ascending=False,
-            )
-            .reset_index(drop=True)
+            pd.DataFrame(rows).sort_values("sharpe_ls", ascending=False,).reset_index(drop=True)
         )
 
         fig = None
         ax = None
 
         if with_plot:
-            if plot_series is None:
-                plot_series = [
-                    "top",
-                    "benchmark",
-                ]
+            fig, ax = self._plot_backtests(
+                backtests, benchmark_returns, pillar, plot_series, figsize
+            )
 
-            plot_series = list(plot_series)
-            valid_series = {
-                "top",
-                "worst",
-                "long_short",
-                "benchmark",
-            }
-            unknown_series = [name for name in plot_series if name not in valid_series]
+        return (summary, backtests, fig, ax)
 
-            if unknown_series:
-                raise ValueError(f"Séries de plot inconnues : " f"{unknown_series}")
+    def _plot_backtests(self, backtests, benchmark_returns, pillar, plot_series, figsize):
+        """Trace les séries déjà calculées, sur leurs dates de signal."""
+        if plot_series is None:
+            plot_series = ["top", "benchmark"]
 
-            fig, ax = plt.subplots(figsize=figsize)
+        plot_series = list(plot_series)
+        valid_series = {
+            "top",
+            "worst",
+            "long_short",
+            "benchmark",
+        }
+        unknown_series = [name for name in plot_series if name not in valid_series]
 
-            columns = {
-                "top": (
-                    "return_top",
-                    "Top",
-                ),
-                "worst": (
-                    "return_worst",
-                    "Worst",
-                ),
-                "long_short": (
-                    "return_long_short",
-                    "Long-Short",
-                ),
-            }
+        if unknown_series:
+            raise ValueError(f"Séries de plot inconnues : {unknown_series}")
 
-            for name, backtest in backtests.items():
-                if backtest.empty:
+        fig, ax = plt.subplots(figsize=figsize)
+
+        columns = {
+            "top": ("return_top", "Top"),
+            "worst": ("return_worst", "Worst"),
+            "long_short": ("return_long_short", "Long-Short"),
+        }
+
+        for name, backtest in backtests.items():
+            if backtest.empty:
+                continue
+
+            indexed = backtest.set_index("date_signal")
+
+            for series_name in plot_series:
+                if series_name == "benchmark":
                     continue
 
-                indexed = backtest.set_index("date_signal")
+                column, label = columns[series_name]
+                series = indexed[column].dropna()
+                cumulative = (1 + series).cumprod()
 
-                for series_name in plot_series:
-                    if series_name == "benchmark":
-                        continue
+                ax.plot(cumulative.index, cumulative.values, label=(f"{name} - {label}"))
 
-                    column, label = columns[series_name]
-                    series = indexed[column].dropna()
-                    cumulative = (1 + series).cumprod()
+        if "benchmark" in plot_series and backtests:
+            date_series = [
+                backtest["date_signal"]
+                for backtest in backtests.values()
+                if not backtest.empty
+            ]
 
-                    ax.plot(
-                        cumulative.index,
-                        cumulative.values,
-                        label=(f"{name} - {label}"),
-                    )
+            if date_series:
+                date_min = min(series.min() for series in date_series)
+                date_max = max(series.max() for series in date_series)
 
-            if "benchmark" in plot_series and backtests:
-                date_series = [
-                    backtest["date_signal"]
-                    for backtest in backtests.values()
-                    if not backtest.empty
-                ]
+                benchmark = benchmark_returns[
+                    (benchmark_returns.index >= date_min)
+                    & (benchmark_returns.index <= date_max)
+                ].dropna()
 
-                if date_series:
-                    date_min = min(series.min() for series in date_series)
-                    date_max = max(series.max() for series in date_series)
+                cumulative = (1 + benchmark).cumprod()
 
-                    benchmark = benchmark_returns[
-                        (benchmark_returns.index >= date_min)
-                        & (benchmark_returns.index <= date_max)
-                    ].dropna()
+                ax.plot(
+                    cumulative.index,
+                    cumulative.values,
+                    label=self.config["volatility"]["benchmark_name"],
+                )
 
-                    cumulative = (1 + benchmark).cumprod()
+        ax.set_title(f"{self.universe} - {pillar} : backtest")
+        ax.set_ylabel("Valeur cumulée - base 1")
+        ax.legend()
+        ax.grid(alpha=0.2)
+        fig.tight_layout()
+        return fig, ax
 
-                    ax.plot(
-                        cumulative.index,
-                        cumulative.values,
-                        label=self.config["volatility"]["benchmark_name"],
-                    )
-
-            ax.set_title(f"{self.universe} - " f"{pillar} : backtest")
-            ax.set_ylabel("Valeur cumulée - base 1")
-            ax.legend()
-            ax.grid(alpha=0.2)
-            fig.tight_layout()
-
-        return (
-            summary,
-            backtests,
-            fig,
-            ax,
-        )
 
     def save_backtest(
         self,
@@ -549,20 +436,14 @@ class SectorResearch:
     ):
         """Sauvegarde un backtest déjà calculé."""
         output_dir = Path(output_dir)
-        output_dir.mkdir(
-            parents=True,
-            exist_ok=True,
-        )
+        output_dir.mkdir(parents=True, exist_ok=True)
 
         prefix = self.config["output_prefix"]
 
-        summary.to_csv(
-            output_dir / (f"{prefix}_" f"{pillar.lower()}_summary.csv"),
-            index=False,
-        )
+        summary.to_csv(output_dir / f"{prefix}_{pillar.lower()}_summary.csv", index=False)
 
         for name, backtest in backtests.items():
             backtest.to_csv(
-                output_dir / (f"{prefix}_" f"{pillar.lower()}_" f"{name}_monthly.csv"),
+                output_dir / f"{prefix}_{pillar.lower()}_{name}_monthly.csv",
                 index=False,
             )
