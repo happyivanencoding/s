@@ -18,7 +18,7 @@ import pandas as pd
 from openpyxl.utils import column_index_from_string, get_column_letter
 from local_config import PORTFOLIO_DELTA, PORTFOLIO_TILT
 from model_secto import compute_deviation_from_mean
-from data_utils import normalize_metadata, preserve_inputs
+from data_utils import normalize_metadata, preserve_inputs, save_table
 
 
 PILLAR_COLUMNS = {
@@ -476,7 +476,7 @@ def save_excel(results, output_dir, config):
     file_path = directory / f"{config['output_prefix']}_output.xlsx"
     grid.to_excel(file_path, sheet_name="Output", index=False, header=False)
     normalize_metadata(file_path)
-    monthly.to_csv(directory / f"{config['output_prefix']}_performance_portefeuille.csv")
+    save_table(monthly.reset_index(), directory / f"{config['output_prefix']}_performance_portefeuille.xlsx")
     return file_path
 
 

@@ -2,12 +2,12 @@
 """Modèle sectoriel EU / US.
 
 STRUCTURE DU FICHIER
-1. SectorModel : choisir le marché, lancer le calcul et lire les résultats.
+1. SectorModel : choisir le marché et lancer le calcul.
 2. run_model : dérouler les étapes du calcul pour un marché.
 3. Sous-scores et piliers : transformer les mesures et les agréger.
 4. Macro et taux : déterminer le contexte du mois.
 5. Rangs et recommandations : compter les votes et choisir les secteurs.
-6. Exports : écrire les tableaux de scores en CSV.
+6. Exports : écrire les tableaux de scores en Excel.
 
 FLUX DES DONNÉES
 Actualiser.bat -> actualiser_excel.main()
@@ -36,6 +36,7 @@ from data_utils import (
     load_history,
     history_path,
     save_history,
+    save_table,
     read_benchmark_returns,
     read_sector_returns,
     read_sector_block,
@@ -47,15 +48,12 @@ from data_utils import (
 MODEL_CONFIGS = {"EU": EU_CONFIG, "US": US_CONFIG}
 
 # 1. Interface du modèle
-
-
 class SectorModel:
-    """Configure, exécute et inspecte un modèle sectoriel."""
+    """Configure et exécute un modèle sectoriel."""
 
     def __init__(
         self,
         universe="EU",
-        variables=None,
         excel_file=None,
         macro_file=None,
     ):
@@ -67,32 +65,20 @@ class SectorModel:
         configuration = MODEL_CONFIGS[universe]
 
         self.universe = universe
-        self._base_config = deepcopy(configuration)
-        self.config = deepcopy(self._base_config)
+        self.config = deepcopy(configuration)
         self.excel_file = Path(excel_file or self.config["excel_file"])
         self.macro_file = Path(macro_file or MACRO_EXCEL_FILE)
         self.results = None
 
-        self._available_variables = deepcopy(self.config["backtest_variables"])
-        self._variable_selection = {
-            pillar: values.copy()
-            for pillar, values in self._available_variables.items()
-        }
-
-        if variables:
-            self._apply_variable_selection(variables)
-
     # Les trois modes partagent le même calcul.
-    def run(self, force=False, mode="production", history_file=None, fresh_history=False):
+    def run(self, mode="production", history_file=None, fresh_history=False):
         """Calcule depuis Excel ou depuis les seules observations enregistrées."""
-        if self.results is not None and not force:
-            return self.results
         if mode not in ("production", "rebuild", "replay"):
             raise ValueError(f"Mode inconnu : {mode}")
         if fresh_history and mode != "rebuild":
             raise ValueError("Seul rebuild peut commencer avec un historique vide.")
         if mode == "rebuild" and history_file is None:
-            raise ValueError("rebuild nécessite un historique dans un dossier de recherche.")
+            raise ValueError("rebuild nécessite un historique dans un dossier de sortie.")
 
         if mode == "replay":
             source = Path(history_file) if history_file else history_path()
@@ -112,13 +98,9 @@ class SectorModel:
             macro_workbook.close()
         return self.results
 
-    def run_production(
-        self,
-        output_dir="output",
-        force=True,
-    ):
-        """Exécute le modèle et exporte les CSV et la feuille Output."""
-        results = self.run(force=force)
+    def run_production(self, output_dir="output"):
+        """Exécute le modèle et exporte les tableaux Excel."""
+        results = self.run()
 
         save_production(results, Path(output_dir), self.config)
         from excel_output import save_excel
@@ -128,7 +110,7 @@ class SectorModel:
 
         return results
 
-    # Consultation : listes, définitions et tableaux de résultats.
+    # Paramètres de base du modèle.
     @property
     def sectors(self):
         """Retourne les secteurs du modèle."""
@@ -144,282 +126,7 @@ class SectorModel:
         """Retourne le nom du benchmark du marché."""
         return self.config["volatility"]["benchmark_name"]
 
-    def available_variables(self, pillar=None):
-        """Retourne les variables disponibles avant sélection."""
-        if pillar is None:
-            return deepcopy(self._available_variables)
-
-        self._validate_pillar(pillar)
-        return self._available_variables[pillar].copy()
-
-    def variables(self, pillar=None):
-        """Retourne les variables actuellement utilisées."""
-        if pillar is None:
-            return deepcopy(self._variable_selection)
-
-        self._validate_pillar(pillar)
-        return self._variable_selection[pillar].copy()
-
-    def variable_definitions(self, pillar=None):
-        """Décrit les sources et transformations, une ligne par variable disponible."""
-        if pillar is not None:
-            self._validate_pillar(pillar)
-        pillars = self.pillars if pillar is None else [pillar]
-        rows = []
-
-        for pillar_name in pillars:
-            active = set(self._variable_selection[pillar_name])
-            historical = self._base_config["historical_variables"].get(pillar_name, {})
-            for variable in self._available_variables[pillar_name]:
-                row = {
-                    "universe": self.universe,
-                    "pillar": pillar_name,
-                    "variable": variable,
-                    "active": variable in active,
-                }
-                if variable in historical:
-                    definition = historical[variable]
-                    window = self._base_config["history_window"]
-                    sector_windows = definition.get("sector_windows", {})
-                    if sector_windows:
-                        overrides = ", ".join(
-                            f"{sector}={months}" for sector, months in sector_windows.items()
-                        )
-                        window = f"{window}; {overrides}"
-                    row.update({
-                        "source": "historical",
-                        "sheet": definition["sheet"],
-                        "column": definition["column"],
-                        "direction": "higher" if definition["rank_order"] == 1 else "lower",
-                        "window": window,
-                        "cross_sectional_mix": definition["mix_cross_sectional_rank"],
-                    })
-                elif pillar_name == "Momentum":
-                    cfg = self._base_config["momentum"]
-                    if variable in ("momentum_6m_1m", "momentum_12m_1m"):
-                        horizon = "short_horizon" if variable == "momentum_6m_1m" else "long_horizon"
-                        column = cfg["price_column"]
-                        window = f"{cfg[horizon]}M-1M"
-                        source = "price"
-                    else:
-                        column = " / ".join([
-                            cfg["revision_up_column"], cfg["revision_down_column"],
-                            cfg["revision_unchanged_column"],
-                        ])
-                        window = None
-                        source = "earnings revisions"
-                    row.update({
-                        "source": source,
-                        "sheet": cfg["sheet"],
-                        "column": column,
-                        "direction": "higher",
-                        "window": window,
-                        "cross_sectional_mix": True,
-                    })
-                else:
-                    cfg = self._base_config["volatility"]
-                    offset = "volatility_offset" if variable == "volatility_6m" else "offset_downside"
-                    row.update({
-                        "source": "sector returns",
-                        "sheet": cfg["sheet_returns"],
-                        "column": "derived",
-                        "direction": "lower",
-                        "window": f"{cfg[offset] + 1} observations",
-                        "cross_sectional_mix": False,
-                    })
-                rows.append(row)
-
-        return pd.DataFrame(rows)
-
-    def composition(self, pillar):
-        """Présente les variables réellement utilisées par secteur."""
-        self._validate_pillar(pillar)
-        composition = self.config["pillar_composition"][pillar]
-        by_sector = composition.get("by_sector", {})
-        rows = []
-        for sector in self.sectors:
-            variables = by_sector.get(sector, composition["default"])
-            rows.append({"sector": sector, "variables": " | ".join(variables)})
-        return pd.DataFrame(rows)
-
-    def summary(self):
-        """Présente la composition active du modèle."""
-        rows = []
-
-        for pillar in self.pillars:
-            rows.append(
-                {
-                    "universe": self.universe,
-                    "pillar": pillar,
-                    "weight": self.config["base_weights"][pillar],
-                    "variables": " | ".join(self._variable_selection[pillar]),
-                }
-            )
-
-        return pd.DataFrame(rows)
-
-    def variable_values(self, variable, date=None):
-        """Retourne les scores sectoriels d'une variable pour une date."""
-        results = self._ensure_results()
-
-        if variable not in results["variable_scores"]:
-            raise ValueError(f"Unknown variable: {variable}")
-
-        score = results["variable_scores"][variable]
-        selected_date = self._select_date(score.index, date)
-
-        return score.loc[selected_date].rename(variable)
-
-    def pillar_values(self, pillar, date=None):
-        """Retourne les scores sectoriels d'un pilier pour une date."""
-        self._validate_pillar(pillar)
-        results = self._ensure_results()
-        score = results["pillars"][pillar]
-        selected_date = self._select_date(score.index, date)
-
-        return score.loc[selected_date].rename(pillar)
-
-    def variable_table(self, pillar, date=None):
-        """Compare les variables actives et le score final d'un pilier."""
-        self._validate_pillar(pillar)
-        results = self._ensure_results()
-
-        variables = self._variable_selection[pillar]
-        pillar_score = results["pillars"][pillar]
-        selected_date = self._select_date(pillar_score.index, date)
-
-        table = pd.DataFrame(index=self.sectors)
-
-        for variable in variables:
-            score = results["variable_scores"][variable]
-
-            if selected_date in score.index:
-                table[variable] = score.loc[selected_date]
-            else:
-                table[variable] = pd.NA
-
-        table[pillar] = pillar_score.loc[selected_date]
-        table.index.name = "sector"
-
-        return table
-
-    def recommendations(self, date=None):
-        """Retourne les recommandations finales pour une date."""
-        history = self._ensure_results()["history"]
-
-        if history.empty:
-            return history.copy()
-
-        dates = pd.DatetimeIndex(history["date"].drop_duplicates()).sort_values()
-        selected_date = self._select_date(dates, date)
-
-        return (
-            history[history["date"] == selected_date].sort_values("rang_global", ascending=False)
-            .reset_index(drop=True)
-        )
-
-    def save_outputs(self, output_dir="output"):
-        """Sauvegarde les sorties du modèle."""
-        results = self._ensure_results()
-
-        save_all_outputs(results, Path(output_dir), self.config)
-
-    def show_latest(self):
-        """Affiche la dernière recommandation disponible."""
-        print_latest(self._ensure_results())
-
-    # Recherche : changer les variables retenues dans un pilier.
-    def _apply_variable_selection(self, selections):
-        """Applique les variables choisies aux compositions des piliers."""
-        for pillar, variables in selections.items():
-            self._validate_pillar(pillar)
-
-            if variables is None:
-                continue
-
-            variables = list(dict.fromkeys(variables))
-
-            if not variables:
-                raise ValueError(f"{pillar} must contain at least one variable.")
-
-            available = self._available_variables[pillar]
-            unknown = [variable for variable in variables if variable not in available]
-
-            if unknown:
-                raise ValueError(f"Unknown variables for {pillar}: {unknown}")
-
-            self._update_pillar_composition(pillar, variables)
-            self._variable_selection[pillar] = variables
-            self.config["backtest_variables"][pillar] = variables.copy()
-
-            if pillar in self.config["historical_variables"]:
-                definitions = self.config["historical_variables"][pillar]
-                self.config["historical_variables"][pillar] = {
-                    variable: definitions[variable] for variable in variables
-                }
-
-    def _update_pillar_composition(self, pillar, variables):
-        """Filtre la composition existante avec la sélection explicite."""
-        base_composition = self._base_config["pillar_composition"][pillar]
-        base_default = base_composition["default"]
-        base_by_sector = base_composition.get("by_sector", {})
-
-        default = [variable for variable in base_default if variable in variables]
-
-        if not default:
-            raise ValueError(f"No selected variable is valid for the default " f"{pillar} composition.")
-
-        by_sector = {}
-
-        for sector, sector_variables in base_by_sector.items():
-            selected = [
-                variable for variable in sector_variables if variable in variables
-            ]
-
-            if not selected:
-                raise ValueError(f"No selected variable is valid for {pillar} / {sector}.")
-
-            by_sector[sector] = selected
-
-        self.config["pillar_composition"][pillar] = {
-            "default": default,
-        }
-
-        if by_sector:
-            self.config["pillar_composition"][pillar]["by_sector"] = by_sector
-
-    def _validate_pillar(self, pillar):
-        if pillar not in self._available_variables:
-            raise ValueError(f"Unknown pillar: {pillar}")
-
-    def _ensure_results(self):
-        if self.results is None:
-            self.run()
-
-        return self.results
-
-    @staticmethod
-    def _select_date(index, date):
-        dates = pd.DatetimeIndex(index).sort_values()
-
-        if len(dates) == 0:
-            raise ValueError("No date available.")
-
-        if date is None:
-            return dates[-1]
-
-        target = pd.Timestamp(date).to_period("M").to_timestamp("M")
-        available = dates[dates <= target]
-
-        if len(available) == 0:
-            raise ValueError(f"No date available before {target.date()}.")
-
-        return available[-1]
-
-
 # 2. Pipeline de calcul
-
-
 def run_model(sector_workbook, macro_workbook, config):
     """Exécute les calculs communs du marché."""
     raw_variables = {}
@@ -428,8 +135,44 @@ def run_model(sector_workbook, macro_workbook, config):
         config,
         details=raw_variables,
     )
+    # Exemple EU au 30/09/2026 : extraits de DataFrame, valeurs arrondies.
+    # pillars = {"Leverage": DataFrame, "Margin": DataFrame,
+    #            "Value": DataFrame, "Growth": DataFrame}
+    # pillars["Leverage"] :
+    #              Tech   Fin   Oil
+    # 2026-09-30   4.32  6.28  4.15
+    #
+    # variable_scores = {"net_debt_ebitda": DataFrame,
+    #                    "fcf_total_debt": DataFrame, ...}
+    # variable_scores["net_debt_ebitda"] :
+    #              Tech   Fin   Oil
+    # 2026-09-30   5.08  7.05  5.25
+    #
+    # raw_variables["net_debt_ebitda"] : valeurs avant notation.
+    #              Tech    Fin   Oil
+    # 2026-09-30   0.44  10.12  0.75
+    # Les dates sont en index et les secteurs en colonnes.
+    # Momentum et Volatility sont ajoutés ensuite, plus bas.
 
     momentum, momentum_scores = compute_momentum(sector_workbook, config, details=raw_variables)
+
+    # Exemple EU au 30/09/2026 :
+    # momentum est un DataFrame : dates en index, secteurs en colonnes.
+    #              Tech     Fin     Oil
+    # 2026-09-30  7.6923  8.2051  7.1795
+    #
+    # momentum_scores contient trois DataFrame (dates x secteurs) :
+    # {"momentum_6m_1m": DataFrame, "momentum_12m_1m": DataFrame,
+    #  "earnings_revision_ratio": DataFrame}
+    # momentum_scores["momentum_6m_1m"] :
+    #              Tech     Fin     Oil
+    # 2026-09-30 10.0000  9.2308  1.5385
+    # Pour Tech, les trois scores sont 10.0000, 7.6923 et 5.3846 ;
+    # leur moyenne donne le score momentum 7.6923.
+    # details ajoute aussi les trois signaux bruts dans raw_variables :
+    # pour Tech, le signal brut 6 mois vaut ici 0.3202 avant classement.
+    # Les scores EU sont sur 10 ; les scores US restent des rangs bruts.
+
     volatility, volatility_scores, returns = compute_volatility(
         sector_workbook,
         config,
@@ -449,6 +192,14 @@ def run_model(sector_workbook, macro_workbook, config):
     variable_scores.update(volatility_scores)
 
     macro_context = build_macro_context(sector_workbook, macro_workbook, config)
+    # macro_context est un DataFrame : dates en index, une ligne par mois.
+    # Exemple EU, extrait historique (macro_score arrondi) :
+    #             macro_score  cycle  signal_taux
+    # 2026-07-31      -0.1255     R       On
+    # 2026-08-31       0.2236     R       Off
+    # 2026-09-30       0.5733     E       On
+    # macro_score et cycle viennent des données macro ; signal_taux du taux US 10 ans.
+    # R = Recovery, E = Expansion ; certaines valeurs peuvent manquer selon les dates.
 
     (history, pillars, ranks, macro_context) = compute_final_results(pillars, macro_context, config)
 
@@ -470,11 +221,38 @@ def run_model(sector_workbook, macro_workbook, config):
         "benchmark_returns": benchmark_returns,
         "macro_context": macro_context,
     }
+    # Structure du résultat : exemples EU du 30/09/2026, valeurs arrondies.
+    # Les lignes et colonnes montrées ci-dessous ne sont qu’un extrait.
+    #
+    # results["history"] : DataFrame avec une ligne par mois et secteur.
+    # date        secteur      score_global_macro  rang_global  recommendation
+    # 2026-09-30  Materials    6.714286            7.0          Neutral
+    # 2026-09-30  ConsStaples  3.714286            2.0          Negative
+    #
+    # results["pillars"] : dictionnaire de DataFrame, un tableau par pilier.
+    # Exemple : results["pillars"]["Leverage"]
+    #              Materials  ConsStaples  Fin  ...
+    # 2026-09-30      ...          ...      ...
+    # 2026-08-31      ...          ...      ...
+    # Les dates sont en index et les secteurs en colonnes.
+    # results["ranks"]["Leverage"] a la même forme, avec les rangs du pilier.
+    #
+    # results["variable_scores"]["net_debt_ebitda"] : scores de la variable.
+    # results["variable_raw"]["net_debt_ebitda"] : valeurs avant notation.
+    # Ces deux dictionnaires contiennent aussi des DataFrame dates x secteurs.
+    #
+    # results["benchmark_weights"] : DataFrame des poids Bench, dates x secteurs.
+    # results["returns"] : DataFrame des rendements sectoriels, dates x secteurs.
+    # results["benchmark_returns"] : DataFrame avec une colonne "benchmark".
+    #                benchmark
+    # 2026-09-30     -0.025180
+    #
+    # results["macro_context"] : DataFrame du score, du cycle et du taux.
+    #              macro_score  cycle  signal_taux
+    # 2026-09-30      0.573336   E      On
 
 
 # 3. Sous-scores et piliers
-
-
 def excel_rank(value, values, order):
     """Reproduit RANK Excel. ordre=1 croissant, ordre=0 décroissant."""
     if pd.isna(value):
@@ -587,6 +365,14 @@ def compute_historical_score(diff, rank_order, history_window, sector_windows=No
 def compute_variable_score(raw, variable_config, history_window):
     """Calcule le score d'une sous-variable."""
     diff = compute_deviation_from_mean(raw, variable_config["exclude_financials_from_mean"])
+    # Exemple avec trois secteurs (Fin incluse dans la moyenne) :
+    # raw              Tech   Fin   Oil   Moyenne
+    # 2026-09-30        18     12     9      13
+    # 2026-08-31        12     10     8      10
+    # diff             Tech   Fin   Oil
+    # 2026-09-30         5     -1    -4
+    # 2026-08-31         2      0    -2
+    # Dates en index, secteurs en colonnes ; chaque valeur est un écart.
 
     score_hist = compute_historical_score(
         diff,
@@ -594,6 +380,20 @@ def compute_variable_score(raw, variable_config, history_window):
         history_window,
         variable_config.get("sector_windows"),
     )
+    # score_hist : note de chaque secteur comparé à son propre historique.
+    # Exemple fictif : history_window=2, rank_order=1 (valeur élevée favorable).
+    # diff             Tech   Fin   Oil
+    # 2026-09-30         5     -1    -4
+    # 2026-08-31         2      0    -2
+    # 2026-07-31         1     -2     1
+    # En septembre, Tech est 3e sur [5, 2, 1] : 10 x 3 / 3 = 10.
+    # score_hist (arrondi) :
+    #                 Tech   Fin   Oil
+    # 2026-09-30    10.00  6.67  3.33
+    # 2026-08-31      NaN   NaN   NaN
+    # 2026-07-31      NaN   NaN   NaN
+    # Les deux dates anciennes n’ont pas assez d’historique dans cet exemple.
+    # Par défaut : 60 observations antérieures + mois courant = 61.
 
     if not variable_config["mix_cross_sectional_rank"]:
         return score_hist
@@ -606,6 +406,14 @@ def compute_variable_score(raw, variable_config, history_window):
             variable_config["rank_order"],
             scale_0_10=True,
         )
+        # Exemple pour un même mois, rank_order=1 :
+        # raw.loc[date] : Tech=18, Fin=12, Oil=9.
+        # Rangs parmi les trois secteurs : Tech=3, Fin=2, Oil=1.
+        # score_cross = 10 x rang / 3 (Series indexée par secteur) :
+        # Tech    10.00
+        # Fin      6.67
+        # Oil      3.33
+        # La note de la variable est ensuite la moyenne de score_hist et score_cross.
         score.loc[date] = (score_hist.loc[date] + score_cross) / 2
 
     return score
@@ -613,9 +421,11 @@ def compute_variable_score(raw, variable_config, history_window):
 
 def compose_pillar(scores, config, pillar):
     """Agrège les sous-scores selon la composition du pilier."""
+    # scores contient un DataFrame par variable : dates en index, secteurs en colonnes.
     sectors = config["sectors"]
     composition = config["pillar_composition"][pillar]
 
+    # Garder les dates communes à tous les tableaux de scores.
     dates = None
     for score in scores.values():
         dates = score.index if dates is None else dates.intersection(score.index)
@@ -623,20 +433,26 @@ def compose_pillar(scores, config, pillar):
     if dates is None or len(dates) == 0:
         raise ValueError(f"Aucune date disponible pour le pilier {pillar}.")
 
+    # Le tableau final contiendra un score par date et par secteur.
     result = pd.DataFrame(index=dates, columns=sectors, dtype=float)
 
+    # Certaines compositions sont propres à un secteur ; sinon utiliser default.
     by_sector = composition.get("by_sector", {})
 
     for date in dates:
         for sector in sectors:
+            # Exemple EU / Growth : Fin utilise eps_growth et sales_growth.
+            # Si leurs scores sont 6 et 8, le score du pilier vaut (6 + 8) / 2 = 7.
             variables = by_sector.get(sector, composition["default"])
             values = [scores[variable].at[date, sector] for variable in variables]
 
+            # Une valeur manquante rend le pilier indisponible ; sinon calculer la moyenne.
             if any(pd.isna(value) for value in values):
                 result.at[date, sector] = np.nan
             else:
                 result.at[date, sector] = sum(values) / len(values)
 
+    # Arrondir seulement si une précision est configurée pour ce pilier.
     decimals = config["pillar_rounding"].get(pillar)
 
     if decimals is not None:
@@ -654,6 +470,11 @@ def compute_historical_pillars(wb, config, details=None):
     for pillar, variables in config["historical_variables"].items():
         pillar_scores = {}
 
+        # Exemple EU, pilier Leverage :
+        # variable_name = "net_debt_ebitda"
+        # cfg = {"sheet": "Leverage_FMA", "column": "AF", "rank_order": 0,
+        #        "exclude_financials_from_mean": False,
+        #        "mix_cross_sectional_rank": False}
         for variable_name, cfg in variables.items():
             ws = wb[cfg["sheet"]] if wb is not None else None
             raw = read_sector_block(
@@ -705,13 +526,17 @@ def compute_momentum(wb, config, details=None):
         ):
             if i + horizon >= len(prices):
                 continue
+            # Exemple en septembre, horizon=6 et mois consécutifs :
+            # cours août 120 / cours mars 100 - 1 = 0.20, soit 20 %.
             returns.iloc[i] = prices.iloc[i + 1] / prices.iloc[i + horizon] - 1
+            # Tech (configuration actuelle) utilise septembre : 132 / mars 100 - 1 = 0.32.
             if current_month_sector:
                 returns.at[date, current_month_sector] = (
                     prices.iloc[i][current_month_sector]
                     / prices.iloc[i + horizon][current_month_sector] - 1
                 )
 
+    # Exemple : 7 hausses, 2 baisses, 1 inchangée -> (7 - 2) / 10 = 0.50.
     revision_ratio = (revisions_up - revisions_down) / (
         revisions_up + revisions_down + revisions_unchanged
     )
@@ -720,9 +545,12 @@ def compute_momentum(wb, config, details=None):
         "momentum_12m_1m": long_returns,
         "earnings_revision_ratio": revision_ratio,
     }
+    # details conserve les trois signaux avant leur classement.
     if details is not None:
         details.update(raw_signals)
 
+    # Exemple fictif à une date : Tech=0.50, Fin=0.20, Oil=-0.10.
+    # Rangs : 3, 2, 1 ; EU sur 10 : 10, 6.67, 3.33 ; US garde 3, 2, 1.
     scale_scores = cfg.get("scale_0_10", True)
     variable_scores = {}
     for name, values in raw_signals.items():
@@ -730,6 +558,8 @@ def compute_momentum(wb, config, details=None):
             lambda row: cross_sectional_rank(row, order=1, scale_0_10=scale_scores),
             axis=1,
         )
+    # Exemple EU : scores 10, 6.67 et 3.33 -> moyenne Momentum = 6.67.
+    # Une composante manquante rend le pilier indisponible.
     momentum = compose_pillar(variable_scores, config, "Momentum")
     return momentum, variable_scores
 
@@ -804,6 +634,8 @@ def compute_rate_signal(us10y_rates, signal_config):
     alpha = signal_config["alpha_ewma"]
     threshold = signal_config["percentile_threshold"]
 
+    # Exemple fictif : taux 2, 3, 3 ; alpha=0.715 et seuil=0.85.
+    # Les dates sont traitées de la plus ancienne à la plus récente.
     df = us10y_rates.copy().sort_index()
     df["ewma_us10y"] = np.nan
     df["diff_ewma"] = np.nan
@@ -817,24 +649,37 @@ def compute_rate_signal(us10y_rates, signal_config):
             continue
 
         if i == 0 or pd.isna(df.iloc[i - 1]["ewma_us10y"]):
+            # Premier mois : l’EWMA prend directement le taux, ici 2.
             ewma = rate
         else:
             previous_ewma = df.iloc[i - 1]["ewma_us10y"]
+            # Deuxième mois : 0.715 x 2 + 0.285 x 3 = 2.285.
             ewma = alpha * previous_ewma + (1 - alpha) * rate
 
         df.iloc[i, df.columns.get_loc("ewma_us10y")] = ewma
 
+        # Deuxième mois : taux 3 - EWMA 2.285 = écart 0.715.
         diff = rate - ewma
         df.iloc[i, df.columns.get_loc("diff_ewma")] = diff
 
+        # Troisième mois : écarts [0, 0.511225, 0.715] classés.
+        # L’écart courant 0.511225 est au milieu : percentile 0.50.
         history = df["diff_ewma"].iloc[: i + 1]
         percentile = percentrank_inc(history, diff)
 
         df.iloc[i, df.columns.get_loc("percentile_taux")] = percentile
+        # Avec un seuil de 0.85 : 0.50 donne Off, 1.00 donne On.
+        # Le seuil doit être strictement dépassé : 0.85 donne Off.
         df.iloc[i, df.columns.get_loc("signal_taux")] = (
             "On" if percentile > threshold else "Off"
         )
 
+    # Résultat de l’exemple :
+    # date        us10y  ewma_us10y  diff_ewma  percentile_taux  signal_taux
+    # 2026-01-31    2.0    2.000000   0.000000             1.00       On
+    # 2026-02-28    3.0    2.285000   0.715000             1.00       On
+    # 2026-03-31    3.0    2.488775   0.511225             0.50       Off
+    # Avec une seule observation, percentrank_inc renvoie 1.00.
     return df
 
 
@@ -985,23 +830,32 @@ def _count_sector_votes(ranks, tilt_rank, date, rate_signal, config):
     sectors = config["sectors"]
     n_sectors = len(sectors)
     n_top, n_worst = config["n_top"], config["n_worst"]
+    # Deux Series indexées par secteur ; au départ chaque compteur vaut 0.
+    # Exemple EU : 13 secteurs, Top = rangs 11 à 13 ; Worst = rangs 1 à 3.
     top_count = pd.Series(0, index=sectors, dtype=int)
     bottom_count = pd.Series(0, index=sectors, dtype=int)
 
+    # Exemple EU Tech : Margin=12, Growth=13, Momentum=12 -> 3 votes Top.
     for pillar in config["top_vote_pillars"]:
         r = ranks[pillar].loc[date]
         top_count += (r > n_sectors - n_top).fillna(False).astype(int)
 
+    # Exemple fictif EU : Fin avec un rang Value=2 reçoit 1 vote Worst.
     for pillar in config["bottom_vote_pillars"]:
         r = ranks[pillar].loc[date]
         bottom_count += (r <= n_worst).fillna(False).astype(int)
 
+    # Le rang du tilt macro vote aussi : 2 votes en EU, 1 en US.
+    # Exemple EU : rang Tech=12 -> 2 votes Top de plus.
     macro_weight = config["macro_vote_weight"]
 
     top_count += macro_weight * (tilt_rank > n_sectors - n_top).fillna(False).astype(int)
 
     bottom_count += macro_weight * (tilt_rank <= n_worst).fillna(False).astype(int)
 
+    # Avec On, Leverage et Value apportent un vote supplémentaire si leur rang le permet.
+    # Exemple fictif EU : Fin, Leverage=12 et Value=2 -> +1 Top et +1 Worst.
+    # Avec Off, aucun vote de taux n’est ajouté.
     if rate_signal == "On":
         for pillar in config["rate_overlay_pillars"]:
             r = ranks[pillar].loc[date]
@@ -1010,6 +864,7 @@ def _count_sector_votes(ranks, tilt_rank, date, rate_signal, config):
 
             bottom_count += (r <= n_worst).fillna(False).astype(int)
 
+    # EU et US : Travel & leisure ne reçoit aucun vote à partir du 31/10/2011.
     for rule in config.get("no_vote_rules", []):
         start_date = (
             pd.Timestamp(rule["start_date"]).to_period("M").to_timestamp("M")
@@ -1026,16 +881,22 @@ def _count_sector_votes(ranks, tilt_rank, date, rate_signal, config):
             sector = rule["sector"]
             top_count[sector] = 0
             bottom_count[sector] = 0
+    # Exemple EU du 30/09/2026 : Tech = 5 Top et 0 Worst.
+    # Les recommandations Positive/Negative sont choisies après ce retour.
     return top_count, bottom_count
 
 
 def compute_final_results(pillars, macro_context, config):
     """Construit scores finaux, votes et recommandations."""
+    # Exemple EU du 30/09/2026 : 13 secteurs, jusqu’à 3 Positive et 3 Negative.
     sectors = config["sectors"]
     n_sectors = len(sectors)
     n_top = config["n_top"]
     n_worst = config["n_worst"]
 
+    # Aligner les dates puis classer les secteurs dans chaque pilier.
+    # Rangs de Tech : Leverage=6, Margin=12, Value=9, Growth=13,
+    # Momentum=12, Volatility=4. Un rang plus élevé est plus favorable.
     pillars = align_pillars(pillars)
     ranks = compute_pillar_ranks(pillars)
     rows = []
@@ -1044,6 +905,8 @@ def compute_final_results(pillars, macro_context, config):
         if date not in macro_context.index:
             continue
 
+        # Dans cet exemple : cycle E, macro_score=0.5733 et signal_taux=On.
+        # Une date sans cycle ou signal de taux valide est ignorée.
         regime = macro_context.at[date, "cycle"]
         macro_score = macro_context.at[date, "macro_score"]
         rate_signal = macro_context.at[date, "signal_taux"]
@@ -1053,19 +916,31 @@ def compute_final_results(pillars, macro_context, config):
         if rate_signal not in {"On", "Off"}:
             continue
 
+        # Score de base EU : chaque rang compte pour 1/6.
+        # Tech : (6 + 12 + 9 + 13 + 12 + 4) / 6 = 9.3333 ; rang_base=12.
         base_score = compute_weighted_score(ranks, config["base_weights"], date)
         base_rank = rank_sectors(base_score)
 
+        # Le régime choisit les poids du tilt. En E pour EU, ils valent aussi 1/6 :
+        # Tech obtient score_tilt=9.3333 et rang_tilt_macro=12.
         tilt_score = compute_weighted_score(ranks, config["regime_weights"][regime], date)
         tilt_rank = rank_sectors(tilt_score)
 
+        # Score global EU : six rangs et rang_tilt_macro comptent chacun pour 1/7.
+        # Tech : (6 + 12 + 9 + 13 + 12 + 4 + 12) / 7 = 9.7143 ; rang_global=12.
+        # La composante Macro est le rang du tilt, pas le macro_score brut.
         macro_adjusted_score = compute_macro_adjusted_score(ranks, tilt_rank, date, config)
         overall_rank = rank_sectors(macro_adjusted_score)
 
+        # EU : rangs 11 à 13 -> vote Top ; rangs 1 à 3 -> vote Worst.
+        # Tech : 3 votes Top des piliers + 2 du tilt = 5 ; aucun vote Worst.
+        # Le taux On examine aussi Leverage et Value : aucun vote supplémentaire ici.
         top_count, bottom_count = _count_sector_votes(
             ranks, tilt_rank, date, rate_signal, config
         )
 
+        # La sélection utilise les votes, puis le rang global pour départager.
+        # Dans cet exemple, Tech est retenu dans Positive.
         top, worst = select_top_worst(top_count, bottom_count, overall_rank, n_top, n_worst)
 
         for sector in sectors:
@@ -1076,6 +951,8 @@ def compute_final_results(pillars, macro_context, config):
             else:
                 recommendations = "Neutral"
 
+            # Exemple de ligne : 2026-09-30, Tech, E, score global 9.7143,
+            # rang 12, votes Top/Worst 5/0, recommandation Positive.
             record = {
                 "date": date,
                 "secteur": sector,
@@ -1099,6 +976,7 @@ def compute_final_results(pillars, macro_context, config):
 
             rows.append(record)
 
+    # Retour : historique (une ligne par date et secteur), piliers, rangs et contexte.
     return (pd.DataFrame(rows), pillars, ranks, macro_context)
 
 
@@ -1142,7 +1020,7 @@ def save_production(results, output_dir, config):
 
             rows.append(record)
 
-        pd.DataFrame(rows).to_csv(directory / f"{prefix}_piliers_latest_available.csv", index=False)
+        save_table(pd.DataFrame(rows), directory / f"{prefix}_piliers_latest_available.xlsx")
 
     if history.empty:
         return
@@ -1151,25 +1029,7 @@ def save_production(results, output_dir, config):
     latest = history[history["date"] == latest_date].copy()
     latest = latest.sort_values("rang_global", ascending=False)
 
-    latest.to_csv(directory / f"{prefix}_recommandations_latest.csv", index=False)
-
-    columns = [
-        "date",
-        "secteur",
-        "score_leverage",
-        "score_margin",
-        "score_value",
-        "score_momentum",
-        "score_growth",
-        "score_volatility",
-        "macro_score",
-        "cycle",
-        "signal_taux",
-        "rang_global",
-        "recommendation",
-    ]
-
-    latest[columns].to_csv(directory / f"{prefix}_piliers_latest_with_reco.csv", index=False)
+    save_table(latest, directory / f"{prefix}_recommandations_latest.xlsx")
 
 
 def save_all_outputs(results, output_dir, config):
@@ -1179,7 +1039,7 @@ def save_all_outputs(results, output_dir, config):
 
     prefix = config["output_prefix"]
 
-    results["history"].to_csv(directory / f"{prefix}_historique_modele.csv", index=False)
+    save_table(results["history"], directory / f"{prefix}_historique_modele.xlsx")
 
     save_production(results, directory, config)
 

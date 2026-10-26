@@ -10,6 +10,7 @@ Les chemins et les paramètres sont définis dans local_config.py.
 """
 
 from copy import deepcopy
+from datetime import date, datetime
 from pathlib import Path
 import re
 from zipfile import ZipFile, ZIP_DEFLATED
@@ -18,6 +19,7 @@ import numpy as np
 import pandas as pd
 from lxml import etree as ET
 from openpyxl import load_workbook
+from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import column_index_from_string
 
 from local_config import HISTORY_CONFIG, MACRO_EXCEL_FILE, EU_CONFIG, US_CONFIG
@@ -441,6 +443,39 @@ def normalize_metadata(file_path):
             for element in archive.infolist():
                 output.writestr(element, changes.get(element.filename, archive.read(element.filename)))
     temporary.replace(file_path)
+
+
+def save_table(frame, file_path):
+    """Enregistre un tableau Excel avec des colonnes et des dates lisibles."""
+    file_path = Path(file_path)
+    with pd.ExcelWriter(file_path, engine="openpyxl") as writer:
+        frame.to_excel(writer, sheet_name="Données", index=False)
+        sheet = writer.sheets["Données"]
+        sheet.freeze_panes = "A2"
+        sheet.sheet_view.showGridLines = False
+        if sheet.max_row > 1:
+            sheet.auto_filter.ref = sheet.dimensions
+
+        for column in sheet.columns:
+            header = column[0]
+            header.font = Font(bold=True, color="FFFFFF")
+            header.fill = PatternFill("solid", fgColor="315777")
+            header.alignment = Alignment(horizontal="center", vertical="center")
+            width = len(str(header.value or ""))
+            for cell in column[1:]:
+                value = cell.value
+                if isinstance(value, (date, datetime)):
+                    cell.number_format = "yyyy-mm-dd"
+                    length = 10
+                else:
+                    length = len(str(value)) if value is not None else 0
+                    if isinstance(value, str):
+                        cell.alignment = Alignment(horizontal="left", indent=1)
+                if cell.row <= 101:
+                    width = max(width, length)
+            sheet.column_dimensions[header.column_letter].width = min(max(width + 2, 12), 60)
+
+    normalize_metadata(file_path)
 
 
 def sheet_paths(archive):

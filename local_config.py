@@ -11,6 +11,7 @@ PROJECT_DIR = Path(__file__).resolve().parent
 EU_EXCEL_FILE = str(PROJECT_DIR / "Score_Sectoriel_EU_NEW.xlsm")
 US_EXCEL_FILE = str(PROJECT_DIR / "Score_Sectoriel_US_NEW.xlsm")
 MACRO_EXCEL_FILE = str(PROJECT_DIR / "maj cycle macro2.xlsx")
+SECTOR_DEVIATION_EXCEL_FILE = str(PROJECT_DIR / "reco_secto_facto.xlsx")  # Classeur d'allocation ICB existant.
 
 HISTORY_CONFIG = {
     "enabled": True,

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Outils de recherche pour les modèles sectoriels EU et US."""
 
+from copy import deepcopy
 from pathlib import Path
 import math
 
@@ -8,7 +9,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from model_secto import SectorModel
+from model_secto import SectorModel, save_all_outputs, print_latest
+from data_utils import save_table
 
 
 def prepare_forward_returns(returns):
@@ -157,27 +159,303 @@ def _plot_heatmap(matrix, sectors, columns, title, figsize):
 
 
 class SectorResearch:
-    """Fournit les visualisations et backtests d'un SectorModel."""
+    """Regroupe la configuration, les consultations et les backtests de recherche."""
 
-    def __init__(self, model):
+    def __init__(self, model, variables=None):
         if not isinstance(model, SectorModel):
             raise TypeError("model must be a SectorModel.")
+        if variables and model.results is not None:
+            raise ValueError("Select research variables before running the model.")
 
         self.model = model
         self.universe = model.universe
         self.config = model.config
+        self._base_config = deepcopy(model.config)
+        self._available_variables = deepcopy(self.config["backtest_variables"])
+        self._variable_selection = {
+            pillar: values.copy() for pillar, values in self._available_variables.items()
+        }
+        if variables:
+            self.config = deepcopy(model.config)
+            self._apply_variable_selection(variables)
+            model.config = self.config
 
-    def load(self, force=False):
+    def load(self):
         """Exécute le modèle et conserve les résultats en mémoire."""
-        self.model.run(force=force)
+        self.model.run()
         return self
 
+    def available_variables(self, pillar=None):
+        """Retourne les variables disponibles avant sélection."""
+        if pillar is None:
+            return deepcopy(self._available_variables)
+
+        self._validate_pillar(pillar)
+        return self._available_variables[pillar].copy()
+
     def variables(self, pillar=None):
-        """Retourne les variables actives du modèle."""
-        return self.model.variables(pillar)
+        """Retourne les variables actuellement utilisées."""
+        if pillar is None:
+            return deepcopy(self._variable_selection)
+
+        self._validate_pillar(pillar)
+        return self._variable_selection[pillar].copy()
+
+    def variable_definitions(self, pillar=None):
+        """Décrit les sources et transformations, une ligne par variable disponible."""
+        if pillar is not None:
+            self._validate_pillar(pillar)
+        pillars = self.model.pillars if pillar is None else [pillar]
+        rows = []
+
+        for pillar_name in pillars:
+            active = set(self._variable_selection[pillar_name])
+            historical = self._base_config["historical_variables"].get(pillar_name, {})
+            for variable in self._available_variables[pillar_name]:
+                row = {
+                    "universe": self.universe,
+                    "pillar": pillar_name,
+                    "variable": variable,
+                    "active": variable in active,
+                }
+                if variable in historical:
+                    definition = historical[variable]
+                    window = self._base_config["history_window"]
+                    sector_windows = definition.get("sector_windows", {})
+                    if sector_windows:
+                        overrides = ", ".join(
+                            f"{sector}={months}" for sector, months in sector_windows.items()
+                        )
+                        window = f"{window}; {overrides}"
+                    row.update({
+                        "source": "historical",
+                        "sheet": definition["sheet"],
+                        "column": definition["column"],
+                        "direction": "higher" if definition["rank_order"] == 1 else "lower",
+                        "window": window,
+                        "cross_sectional_mix": definition["mix_cross_sectional_rank"],
+                    })
+                elif pillar_name == "Momentum":
+                    cfg = self._base_config["momentum"]
+                    if variable in ("momentum_6m_1m", "momentum_12m_1m"):
+                        horizon = "short_horizon" if variable == "momentum_6m_1m" else "long_horizon"
+                        column = cfg["price_column"]
+                        window = f"{cfg[horizon]}M-1M"
+                        source = "price"
+                    else:
+                        column = " / ".join([
+                            cfg["revision_up_column"], cfg["revision_down_column"],
+                            cfg["revision_unchanged_column"],
+                        ])
+                        window = None
+                        source = "earnings revisions"
+                    row.update({
+                        "source": source,
+                        "sheet": cfg["sheet"],
+                        "column": column,
+                        "direction": "higher",
+                        "window": window,
+                        "cross_sectional_mix": True,
+                    })
+                else:
+                    cfg = self._base_config["volatility"]
+                    offset = "volatility_offset" if variable == "volatility_6m" else "offset_downside"
+                    row.update({
+                        "source": "sector returns",
+                        "sheet": cfg["sheet_returns"],
+                        "column": "derived",
+                        "direction": "lower",
+                        "window": f"{cfg[offset] + 1} observations",
+                        "cross_sectional_mix": False,
+                    })
+                rows.append(row)
+
+        return pd.DataFrame(rows)
+
+    def composition(self, pillar):
+        """Présente les variables réellement utilisées par secteur."""
+        self._validate_pillar(pillar)
+        composition = self.config["pillar_composition"][pillar]
+        by_sector = composition.get("by_sector", {})
+        rows = []
+        for sector in self.model.sectors:
+            variables = by_sector.get(sector, composition["default"])
+            rows.append({"sector": sector, "variables": " | ".join(variables)})
+        return pd.DataFrame(rows)
+
+    def summary(self):
+        """Présente la composition active du modèle."""
+        rows = []
+
+        for pillar in self.model.pillars:
+            rows.append(
+                {
+                    "universe": self.universe,
+                    "pillar": pillar,
+                    "weight": self.config["base_weights"][pillar],
+                    "variables": " | ".join(self._variable_selection[pillar]),
+                }
+            )
+
+        return pd.DataFrame(rows)
+
+    def variable_values(self, variable, date=None):
+        """Retourne les scores sectoriels d'une variable pour une date."""
+        results = self._results()
+
+        if variable not in results["variable_scores"]:
+            raise ValueError(f"Unknown variable: {variable}")
+
+        score = results["variable_scores"][variable]
+        selected_date = self._select_date(score.index, date)
+
+        return score.loc[selected_date].rename(variable)
+
+    def pillar_values(self, pillar, date=None):
+        """Retourne les scores sectoriels d'un pilier pour une date."""
+        self._validate_pillar(pillar)
+        results = self._results()
+        score = results["pillars"][pillar]
+        selected_date = self._select_date(score.index, date)
+
+        return score.loc[selected_date].rename(pillar)
+
+    def variable_table(self, pillar, date=None):
+        """Compare les variables actives et le score final d'un pilier."""
+        self._validate_pillar(pillar)
+        results = self._results()
+
+        variables = self._variable_selection[pillar]
+        pillar_score = results["pillars"][pillar]
+        selected_date = self._select_date(pillar_score.index, date)
+
+        table = pd.DataFrame(index=self.model.sectors)
+
+        for variable in variables:
+            score = results["variable_scores"][variable]
+
+            if selected_date in score.index:
+                table[variable] = score.loc[selected_date]
+            else:
+                table[variable] = pd.NA
+
+        table[pillar] = pillar_score.loc[selected_date]
+        table.index.name = "sector"
+
+        return table
+
+    def recommendations(self, date=None):
+        """Retourne les recommandations finales pour une date."""
+        history = self._results()["history"]
+
+        if history.empty:
+            return history.copy()
+
+        dates = pd.DatetimeIndex(history["date"].drop_duplicates()).sort_values()
+        selected_date = self._select_date(dates, date)
+
+        return (
+            history[history["date"] == selected_date].sort_values("rang_global", ascending=False)
+            .reset_index(drop=True)
+        )
+
+    def save_outputs(self, output_dir="output"):
+        """Sauvegarde les sorties du modèle."""
+        results = self._results()
+
+        save_all_outputs(results, Path(output_dir), self.config)
+
+    def show_latest(self):
+        """Affiche la dernière recommandation disponible."""
+        print_latest(self._results())
+
+    # Recherche : changer les variables retenues dans un pilier.
+    def _apply_variable_selection(self, selections):
+        """Applique les variables choisies aux compositions des piliers."""
+        for pillar, variables in selections.items():
+            self._validate_pillar(pillar)
+
+            if variables is None:
+                continue
+
+            variables = list(dict.fromkeys(variables))
+
+            if not variables:
+                raise ValueError(f"{pillar} must contain at least one variable.")
+
+            available = self._available_variables[pillar]
+            unknown = [variable for variable in variables if variable not in available]
+
+            if unknown:
+                raise ValueError(f"Unknown variables for {pillar}: {unknown}")
+
+            self._update_pillar_composition(pillar, variables)
+            self._variable_selection[pillar] = variables
+            self.config["backtest_variables"][pillar] = variables.copy()
+
+            if pillar in self.config["historical_variables"]:
+                definitions = self.config["historical_variables"][pillar]
+                self.config["historical_variables"][pillar] = {
+                    variable: definitions[variable] for variable in variables
+                }
+
+    def _update_pillar_composition(self, pillar, variables):
+        """Filtre la composition existante avec la sélection explicite."""
+        base_composition = self._base_config["pillar_composition"][pillar]
+        base_default = base_composition["default"]
+        base_by_sector = base_composition.get("by_sector", {})
+
+        default = [variable for variable in base_default if variable in variables]
+
+        if not default:
+            raise ValueError(f"No selected variable is valid for the default " f"{pillar} composition.")
+
+        by_sector = {}
+
+        for sector, sector_variables in base_by_sector.items():
+            selected = [
+                variable for variable in sector_variables if variable in variables
+            ]
+
+            if not selected:
+                raise ValueError(f"No selected variable is valid for {pillar} / {sector}.")
+
+            by_sector[sector] = selected
+
+        self.config["pillar_composition"][pillar] = {
+            "default": default,
+        }
+
+        if by_sector:
+            self.config["pillar_composition"][pillar]["by_sector"] = by_sector
+
+    def _validate_pillar(self, pillar):
+        if pillar not in self._available_variables:
+            raise ValueError(f"Unknown pillar: {pillar}")
+
+    @staticmethod
+    def _select_date(index, date):
+        dates = pd.DatetimeIndex(index).sort_values()
+
+        if len(dates) == 0:
+            raise ValueError("No date available.")
+
+        if date is None:
+            return dates[-1]
+
+        target = pd.Timestamp(date).to_period("M").to_timestamp("M")
+        available = dates[dates <= target]
+
+        if len(available) == 0:
+            raise ValueError(f"No date available before {target.date()}.")
+
+        return available[-1]
+
 
     def _results(self):
-        return self.model.run()
+        if self.model.results is None:
+            self.model.run()
+        return self.model.results
 
     def _pillar_date(self, date=None):
         """Choisit une date commune disponible pour les piliers."""
@@ -440,10 +718,10 @@ class SectorResearch:
 
         prefix = self.config["output_prefix"]
 
-        summary.to_csv(output_dir / f"{prefix}_{pillar.lower()}_summary.csv", index=False)
+        save_table(summary, output_dir / f"{prefix}_{pillar.lower()}_summary.xlsx")
 
         for name, backtest in backtests.items():
-            backtest.to_csv(
-                output_dir / f"{prefix}_{pillar.lower()}_{name}_monthly.csv",
-                index=False,
+            save_table(
+                backtest,
+                output_dir / f"{prefix}_{pillar.lower()}_{name}_monthly.xlsx",
             )

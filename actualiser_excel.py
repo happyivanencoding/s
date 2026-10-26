@@ -19,16 +19,17 @@ import shutil
 
 import pandas as pd
 
-from local_config import PROJECT_DIR, HISTORY_CONFIG, MACRO_EXCEL_FILE
-from data_utils import normalize_metadata
+from local_config import PROJECT_DIR, HISTORY_CONFIG, MACRO_EXCEL_FILE, SECTOR_DEVIATION_EXCEL_FILE
+from data_utils import normalize_metadata, save_table
 from model_secto import SectorModel, save_all_outputs
 from excel_output import compute_portfolio, save_excel, update_workbooks
+from sector_deviations import update_sector_deviations
 
 
 def backup_inputs(models, output_dir):
     """Garde une copie des deux classeurs et de l'historique avant le calcul."""
     file_paths = [m.excel_file for m in models]
-    file_paths.append(PROJECT_DIR / HISTORY_CONFIG["file"])
+    file_paths.extend([PROJECT_DIR / HISTORY_CONFIG["file"], Path(SECTOR_DEVIATION_EXCEL_FILE)])
     for file_path in file_paths:
         if (file_path.parent / ("~$" + file_path.name)).exists():
             raise RuntimeError(f"Fermer le fichier avant la mise à jour : {file_path.name}")
@@ -42,6 +43,7 @@ def backup_inputs(models, output_dir):
 
 
 def _missing_financial_pillars(model, date, cycle):
+    """Renvoie la liste des piliers financiers absents pour le cycle et la date donnés."""
     required = {
         name for name, weight in model.config["macro_adjusted_weights"].items()
         if name != "Macro" and weight != 0
@@ -122,6 +124,8 @@ def run_production():
         model.run_production(output_dir=output)
 
     added_months = update_workbooks(models, output)
+    deviation_file = update_sector_deviations(models)  # Repartir les recommandations sur les 19 supersecteurs.
+    print(f"Déviations sectorielles : {deviation_file.name}")
     rows = [model_summary(model, added_months[model.universe]) for model in models]
     text = "Mise à jour terminée à partir des données enregistrées.\n" + "\n".join(rows)
     (output / "actualisation.txt").write_text(text + "\n", encoding="utf-8")
@@ -129,12 +133,12 @@ def run_production():
 
 
 def run_history(mode, output_dir, history_file=None):
-    """Exporte une recherche sans toucher aux XLSM ni à l'output mensuel."""
+    """Exporte rebuild ou replay sans toucher aux XLSM ni à l'output mensuel."""
     if output_dir is None:
         raise ValueError("Indiquer output_dir pour rebuild ou replay.")
     destination = Path(output_dir).expanduser().resolve()
     if destination in (PROJECT_DIR.resolve(), (PROJECT_DIR / "output").resolve()):
-        raise ValueError("Choisir un dossier de recherche distinct du projet et de output/.")
+        raise ValueError("Choisir un dossier de sortie distinct du projet et de output/.")
     if destination.exists() and any(destination.iterdir()):
         raise FileExistsError(f"Le dossier des résultats doit être vide : {destination}")
 
@@ -171,7 +175,7 @@ def run_history(mode, output_dir, history_file=None):
         histories.append(table)
 
     history = pd.concat(histories, ignore_index=True)
-    history.to_csv(destination / "historique_sectoriel_eu_us.csv", index=False)
+    save_table(history, destination / "historique_sectoriel_eu_us.xlsx")
     print(f"{mode} terminé : {destination}")
 
 

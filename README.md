@@ -15,7 +15,7 @@ flowchart TD
     E --> F
     F --> G["model_secto.py"]
     G --> H["excel_output.py"]
-    H --> I["CSV + Output"]
+    H --> I["Exports Excel"]
     C --> J["XLSM : Output, Dashboard, Reco_histo"]
 ~~~
 
@@ -25,10 +25,12 @@ flowchart TD
 | model_secto.py | Interface SectorModel et toutes les fonctions de calcul |
 | data_utils.py | Lecture des données, historique mensuel et conservation des objets Excel |
 | excel_output.py | Tableaux, performances et collage des valeurs dans les modèles Excel |
+| sector_deviations.py | Répartition des recommandations sur les 19 supersecteurs ICB et export dédié |
 | actualiser_excel.py | Sauvegarde, calcul EU et US, mise à jour Excel et bilan |
-| research_secto.py et notebooks | Recherche, analyses et contrôles détaillés |
+| research_secto.py et notebooks | Choix des variables, consultations, visualisations et backtests |
 
 Le début de model_secto.py décrit ses six parties : interface, pipeline, sous-scores et piliers, macro et taux, rangs et recommandations, exports.
+Les consultations et le choix des variables de recherche sont dans `SectorResearch` ; les variables se choisissent avant de lancer le modèle.
 
 ## Guide de production
 
@@ -60,21 +62,31 @@ Pour le rejouer sans ouvrir Excel, utiliser `main(mode="replay", output_dir="out
 
 `rebuild` et `replay` demandent un dossier de sortie vide. Si `history_file=None` en replay, le modèle lit le `data_history.xlsx` du projet.
 
-Les deux modes de recherche écrivent les historiques de scores EU/US, les rendements et les grilles Output dans leur propre dossier, sans mettre à jour les XLSM. Ils partagent les mêmes fonctions de calcul que la production. Le résultat reconstruit reflète les valeurs historiques actuellement sauvegardées dans Excel et peut donc différer d'un historique de premières observations.
+Les modes rebuild et replay écrivent les historiques de scores EU/US, les rendements et les grilles Output dans leur propre dossier, sans mettre à jour les XLSM. Ils partagent les mêmes fonctions de calcul que la production. Le résultat reconstruit reflète les valeurs historiques actuellement sauvegardées dans Excel et peut donc différer d'un historique de premières observations.
 
 ## Production mensuelle
 
 1. Choisir un mois terminé et conserver une copie des entrées.
 2. Rafraîchir les données FactSet / Bloomberg dans Excel, puis enregistrer les valeurs.
 3. Mettre à jour le fichier macro, le taux US 10 ans de Cycle macro et les poids de Bench.
-4. Fermer les deux classeurs sectoriels, le fichier macro et data_history.xlsx.
+4. Fermer les deux classeurs sectoriels, le fichier macro, data_history.xlsx et reco_secto_facto.xlsx.
 5. Double-cliquer sur Actualiser.bat.
-6. Lire output/actualisation.txt et contrôler Output, Dashboard et Reco_histo.
+6. Lire output/actualisation.txt et contrôler Output, Dashboard, Reco_histo ainsi que reco_secto_facto.xlsx.
 7. Conserver et diffuser la version validée.
 
 Le lancement calcule les deux modèles et remplace les valeurs d'Output dans des copies des classeurs d'origine. Les formats, les formules du Dashboard et la disposition des graphiques sont ceux du modèle Excel et ne sont pas reconstruits par Python. Les graphiques sont rafraîchis et Reco_histo ne reçoit que les nouveaux mois. Aucun collage manuel n'est nécessaire.
 
 La collecte fournisseur n'est pas déclenchée par ce lancement. Le programme ne filtre pas automatiquement les observations du mois en cours. Les premières observations enregistrées dans data_history.xlsx (feuille Historique_data) restent figées.
+
+## Écarts sectoriels ICB
+
+En production, le classeur existant `reco_secto_facto.xlsx` est actualisé à la racine du projet. Les onglets `secto_us` et `secto_eu` reproduisent les 19 supersecteurs des tableaux d'allocation, avec une date au premier jour du mois suivant le signal. `Signals_US`, `Signals_EU` et `Mapping` détaillent les décisions initiales et leur répartition.
+
+La déviation par recommandation est actuellement de 5 % dans la cellule modifiable `Mapping!I2` du classeur. En Europe, Fin se répartit entre Banks / Financial Services / Insurance (60 / 20 / 20 %), Materials entre Basic Resources / Chemicals (50 / 50 %) et Indus entre Industrial Goods & Services / Construction & Materials (80 / 20 %). Aux États-Unis, Fin et Materials se répartissent également sur trois supersecteurs chacun. Les rubriques absentes du modèle restent à zéro.
+
+Le total de chaque mois et de chaque marché est nul : si le nombre de Positive et Negative diffère, le budget commun est réparti entre les secteurs de chaque côté, sans dépasser l’amplitude définie dans `Mapping!I2`. S'il n'existe qu'un seul côté, aucune déviation n'est affectée. Les cellules du tableau sont calculées par des formules Excel. Le script met à jour les signaux et prolonge les formules existantes pour les nouveaux mois ; la présentation et le mapping restent dans le classeur.
+
+Le chemin du fichier se change dans `local_config.py` avec `SECTOR_DEVIATION_EXCEL_FILE`. Son emplacement est indépendant des fichiers de sources EU/US et du dossier `output/`.
 
 ## Installation et sources
 
@@ -97,7 +109,7 @@ Les chemins et les paramètres se règlent dans local_config.py. Pour un essai P
 
 ## Résultats et sauvegarde
 
-Les deux XLSM sont mis à jour à partir de leur propre mise en page ; leurs feuilles Output, Dashboard, Reco_histo et leurs liens doivent donc être déjà préparés dans le modèle. Les exports Excel (copie de la feuille Output avec ses formats), CSV et le bilan sont dans output/. La dernière sauvegarde automatique est dans output/avant_actualisation/ ; elle ne remplace pas une archive mensuelle. Les copies de travail Excel sont créées dans le dossier temporaire du système et supprimées à la fin.
+Les deux XLSM sont mis à jour à partir de leur propre mise en page ; leurs feuilles Output, Dashboard, Reco_histo et leurs liens doivent donc être déjà préparés dans le modèle. Les exports Excel (recommandations, performances et copie de la feuille Output avec ses formats) et le bilan sont dans output/. La dernière sauvegarde automatique est dans output/avant_actualisation/ ; elle ne remplace pas une archive mensuelle. Les copies de travail Excel sont créées dans le dossier temporaire du système et supprimées à la fin.
 
 La synthèse d'Output affiche le mois du signal, les dernières données de piliers et le mois d'allocation suivant. Les scores indisponibles sont indiqués par n.a.
 
