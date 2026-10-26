@@ -59,6 +59,8 @@ run_production() calcule et exporte les CSV et la grille Excel. Pour mettre à j
 
 save_outputs() écrit aussi *_historique_modele.csv. Cet export complet n'est pas actualisé par le lancement mensuel standard.
 
+Le mode se choisit directement dans l’appel `main(mode="production", output_dir=None, history_file=None)` placé en fin de `actualiser_excel.py` ; aucune option de ligne de commande n’est nécessaire.
+
 ## Flux selon le mode
 
 - `production` : chargement de l'historique existant, lecture d'Excel et ajout des nouveaux mois par `freeze_history`, puis mise à jour des XLSM. Les observations anciennes ne sont pas remplacées.

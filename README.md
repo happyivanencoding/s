@@ -44,13 +44,21 @@ Le guide présente une synthèse opérationnelle en quatre pages et trois annexe
 | `rebuild` | Toute l'histoire accessible dans les Excel actuels, sans historique initial | Dossier choisi, avec un nouveau `data_history.xlsx` |
 | `replay` | `data_history.xlsx` uniquement ; aucun fichier source Excel ouvert | Dossier choisi, sans modifier l'historique |
 
-~~~bash
-python actualiser_excel.py
-python actualiser_excel.py --mode rebuild --output output/rebuild_octobre
-python actualiser_excel.py --mode replay --output output/replay_test --history output/rebuild_octobre/data_history.xlsx
+Modifier l'appel `main(...)` à la fin de `actualiser_excel.py`, puis lancer `python actualiser_excel.py`.
+
+~~~python
+if __name__ == "__main__":
+    main(
+        mode="production",  # "production", "rebuild" ou "replay"
+        output_dir=None,    # Dossier choisi pour rebuild/replay.
+        history_file=None,  # Historique à lire en replay.
+    )
 ~~~
 
-`rebuild` et `replay` exigent `--output`. Choisir un dossier vide pour `rebuild` comme pour `replay` : les résultats d’un essai précédent ne sont pas écrasés. `replay` lit le snapshot indiqué avec `--history` (ou celui de la racine par défaut).
+Pour reconstruire l'historique, utiliser `main(mode="rebuild", output_dir="output/rebuild_octobre")`.
+Pour le rejouer sans ouvrir Excel, utiliser `main(mode="replay", output_dir="output/replay_test", history_file="output/rebuild_octobre/data_history.xlsx")`.
+
+`rebuild` et `replay` demandent un dossier de sortie vide. Si `history_file=None` en replay, le modèle lit le `data_history.xlsx` du projet.
 
 Les deux modes de recherche écrivent les historiques de scores EU/US, les rendements et les grilles Output dans leur propre dossier, sans mettre à jour les XLSM. Ils partagent les mêmes fonctions de calcul que la production. Le résultat reconstruit reflète les valeurs historiques actuellement sauvegardées dans Excel et peut donc différer d'un historique de premières observations.
 

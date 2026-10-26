@@ -15,7 +15,6 @@ Les données fournisseurs doivent être rafraîchies et enregistrées avant le l
 """
 
 from pathlib import Path
-import argparse
 import shutil
 
 import pandas as pd
@@ -132,7 +131,7 @@ def run_production():
 def run_history(mode, output_dir, history_file=None):
     """Exporte une recherche sans toucher aux XLSM ni à l'output mensuel."""
     if output_dir is None:
-        raise ValueError("Indiquer --output pour rebuild ou replay.")
+        raise ValueError("Indiquer output_dir pour rebuild ou replay.")
     destination = Path(output_dir).expanduser().resolve()
     if destination in (PROJECT_DIR.resolve(), (PROJECT_DIR / "output").resolve()):
         raise ValueError("Choisir un dossier de recherche distinct du projet et de output/.")
@@ -142,7 +141,7 @@ def run_history(mode, output_dir, history_file=None):
     snapshot = destination / HISTORY_CONFIG["file"]
     if mode == "rebuild":
         if history_file is not None:
-            raise ValueError("rebuild repart d'un historique vide : ne pas fournir --history.")
+            raise ValueError("rebuild repart d'un historique vide : ne pas fournir history_file.")
         if snapshot.exists():
             raise FileExistsError(f"Historique déjà présent : {snapshot}")
         history_file = snapshot
@@ -188,9 +187,8 @@ def main(mode="production", output_dir=None, history_file=None):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Production ou recherche sectorielle EU/US")
-    parser.add_argument("--mode", choices=("production", "rebuild", "replay"), default="production")
-    parser.add_argument("--output", help="Dossier des sorties rebuild/replay")
-    parser.add_argument("--history", help="Snapshot d'entrée pour replay (défaut : data_history.xlsx)")
-    args = parser.parse_args()
-    main(mode=args.mode, output_dir=args.output, history_file=args.history)
+    main(
+        mode="production",  # "production", "rebuild" ou "replay"
+        output_dir=None,    # Dossier de résultats pour rebuild et replay.
+        history_file=None,  # Snapshot à lire en replay (None = data_history.xlsx).
+    )

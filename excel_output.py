@@ -582,45 +582,48 @@ def update_workbooks(models, output_dir):
     """Prépare les deux fichiers, puis remplace les originaux après succès."""
     import win32com.client
 
-    added_months = {}
-    # Les copies de travail sont temporaires et supprimées à la fin.
-    with TemporaryDirectory(prefix="sector_excel_") as temporary:
+    added_months = {}  # Nombre de mois ajoutés à Reco_histo pour chaque marché.
+    with TemporaryDirectory(prefix="sector_excel_") as temporary:  # Dossier de travail provisoire.
         work_dir = Path(temporary)
-        # Utiliser une instance séparée avec une interface Python stable.
-        app = win32com.client.gencache.EnsureDispatch(win32com.client.DispatchEx("Excel.Application"))
-        app.Visible = True
-        app.DisplayAlerts = False
-        app.EnableEvents = False
-        app.AutomationSecurity = 3
-        app.AskToUpdateLinks = False
-        blank_workbook = app.Workbooks.Add()
-        # Recalculer seulement les sorties ; la collecte est déjà enregistrée.
-        app.Calculation = -4135
-        app.CalculateBeforeSave = False
+        app = win32com.client.gencache.EnsureDispatch(
+            win32com.client.DispatchEx("Excel.Application")
+        )  # Nouvelle instance Excel, indépendante des classeurs ouverts.
+        app.Visible = True  # Affiche Excel pendant la mise à jour.
+        app.DisplayAlerts = False  # Évite les fenêtres de confirmation.
+        app.EnableEvents = False  # N'exécute pas les événements VBA des feuilles.
+        app.AutomationSecurity = 3  # 3 = macros désactivées à l'ouverture par Python.
+        app.AskToUpdateLinks = False  # N'interroge pas les sources liées.
+        blank_workbook = app.Workbooks.Add()  # Classeur de support pour la session Excel.
+        app.Calculation = -4135  # -4135 = calcul manuel, sans recalcul global des entrées.
+        app.CalculateBeforeSave = False  # N'impose pas un recalcul lors de l'enregistrement.
+
         try:
-            for model in models:
+            for model in models:  # Traite EU et US avec les mêmes étapes.
                 print(f"Mise à jour Excel {model.universe}...", flush=True)
-                original = model.excel_file
-                copy_path = work_dir / original.name
-                shutil.copy2(original, copy_path)
-                wb = app.Workbooks.Open(str(copy_path), UpdateLinks=0, ReadOnly=False)
+                original = model.excel_file  # XLSM du marché utilisé comme modèle.
+                copy_path = work_dir / original.name  # Fichier modifié avant validation.
+                shutil.copy2(original, copy_path)  # L'original reste intact pendant le calcul.
+                wb = app.Workbooks.Open(
+                    str(copy_path), UpdateLinks=0, ReadOnly=False
+                )  # 0 : liens externes non actualisés ; False : ouverture en écriture.
                 export = output_dir / f"{model.config['output_prefix']}_output.xlsx"
                 try:
-                    if wb.ReadOnly:
+                    if wb.ReadOnly:  # Vérifie que la copie est réellement modifiable.
                         raise RuntimeError(f"Classeur en lecture seule : {copy_path.name}")
                     added_months[model.universe] = fill_workbook(
                         wb, model.results, model.config, export
-                    )
+                    )  # Écrit Output, complète Reco_histo et rafraîchit Dashboard.
                 finally:
-                    wb.Close(False)
-                # Conserver les formules d'entrée, les axes et les couleurs d'origine.
-                preserve_inputs(original, copy_path)
-                normalize_metadata(copy_path)
-                normalize_metadata(export)
+                    wb.Close(False)  # Ferme la copie, déjà enregistrée par fill_workbook.
+
+                preserve_inputs(original, copy_path)  # Garde les entrées et formules du modèle.
+                normalize_metadata(copy_path)  # Normalise les métadonnées du XLSM.
+                normalize_metadata(export)  # Normalise celles de l'export Output.
         finally:
-            blank_workbook.Close(False)
-            app.Quit()
-        # Aucun original n'est remplacé tant que les deux copies ne sont pas prêtes.
+            blank_workbook.Close(False)  # Ferme le classeur de support sans sauvegarde.
+            app.Quit()  # Arrête uniquement cette instance Excel.
+
+        # Remplacer les originaux seulement après la réussite des deux marchés.
         for model in models:
             shutil.copy2(work_dir / model.excel_file.name, model.excel_file)
     return added_months
