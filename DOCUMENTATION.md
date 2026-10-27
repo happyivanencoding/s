@@ -23,7 +23,7 @@
 | data_utils.py | Sources, dates, historique et conservation des fichiers Excel |
 | excel_output.py | Output, portefeuille, copie des valeurs et conservation des formats du modèle XLSM |
 | sector_deviations.py | Mapping EU/US vers 19 supersecteurs, ratios et fichier d'allocation ICB |
-| research_secto.py | Choix des variables, consultations et backtests |
+| research/research_secto.py | Choix des variables, consultations et backtests |
 
 ## Structure du modèle
 
@@ -44,7 +44,7 @@ Le schéma au début du fichier montre le parcours des données. actualiser_exce
 
 ```python
 from model_secto import SectorModel
-from research_secto import SectorResearch
+from research.research_secto import SectorResearch
 
 model = SectorModel("EU")
 research = SectorResearch(model)
@@ -87,8 +87,8 @@ Le chemin du classeur existant est `SECTOR_DEVIATION_EXCEL_FILE` dans `local_con
 
 ## Recherche et audit
 
-research_secto.ipynb utilise SectorResearch. audit_modele_eu.ipynb et audit_modele_us.ipynb donnent une lecture détaillée du modèle. Les backtests de recherche sont distincts du portefeuille pondéré de production.
+`research/research_secto.ipynb` utilise SectorResearch. `research/audit_modele_eu.ipynb` et `research/audit_modele_us.ipynb` donnent une lecture détaillée du modèle. Les backtests de recherche sont distincts du portefeuille pondéré de production.
 
-Les notebooks sont conservés sans leurs résultats d'exécution dans le dépôt. Les figures et exports Excel générés dans output/ peuvent être recréés.
+Les notebooks sont conservés sans leurs résultats d'exécution dans le dépôt. Ils utilisent la racine du projet pour les imports et les chemins de sortie, même lorsqu'ils sont ouverts depuis `research/`. Les figures et exports Excel générés dans output/ peuvent être recréés.
 
 Le Word comprend une synthèse pratique et des annexes de méthodologie et d'architecture Python. Les correspondances précises de cellules et les paramètres techniques restent dans local_config.py et les fonctions Python.

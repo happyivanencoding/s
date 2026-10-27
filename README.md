@@ -27,10 +27,10 @@ flowchart TD
 | excel_output.py | Tableaux, performances et collage des valeurs dans les modèles Excel |
 | sector_deviations.py | Répartition des recommandations sur les 19 supersecteurs ICB et export dédié |
 | actualiser_excel.py | Sauvegarde, calcul EU et US, mise à jour Excel et bilan |
-| research_secto.py et notebooks | Choix des variables, consultations, visualisations et backtests |
+| research/ | Module et notebooks de recherche et d'audit |
 
 Le début de model_secto.py décrit ses six parties : interface, pipeline, sous-scores et piliers, macro et taux, rangs et recommandations, exports.
-Les consultations et le choix des variables de recherche sont dans `SectorResearch` ; les variables se choisissent avant de lancer le modèle.
+Les consultations et le choix des variables de recherche sont dans `research/research_secto.py` (`SectorResearch`) ; les variables se choisissent avant de lancer le modèle. Les trois notebooks de recherche et d'audit sont également dans `research/`.
 
 ## Guide de production
 

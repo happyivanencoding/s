@@ -4,10 +4,15 @@
 from copy import deepcopy
 from pathlib import Path
 import math
+import sys
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+
+# Permettre le lancement direct depuis research/.
+if __name__ == "__main__":
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from model_secto import SectorModel, save_all_outputs, print_latest
 from data_utils import save_table
