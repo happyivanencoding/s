@@ -17,8 +17,7 @@
 
 | Fichier | Rôle |
 | --- | --- |
-| Actualiser.bat | Commande de production et ouverture des résultats |
-| actualiser_excel.py | Modes production, rebuild et replay |
+| actualiser_excel.py | Modes production, rebuild et replay ; ouverture des résultats de production |
 | local_config.py | Seule configuration persistante des sources et du modèle |
 | model_secto.py | Interface SectorModel, pipeline et calculs |
 | data_utils.py | Sources, dates, historique et conservation des fichiers Excel |
@@ -60,13 +59,13 @@ research.recommendations()
 
 Chaque appel à `run()` recalcule le modèle. Les consultations `SectorResearch` utilisent le dernier résultat disponible. Pour une sélection de variables, créer `SectorResearch(model, variables=...)` avant de lancer le modèle.
 
-run_production() calcule et exporte les tableaux Excel. Pour mettre à jour les deux XLSM et leur présentation, utiliser Actualiser.bat ou python actualiser_excel.py.
+run_production() calcule et exporte les tableaux Excel. Pour mettre à jour les deux XLSM et leur présentation, lancer `python actualiser_excel.py` ; les classeurs EU et US s'ouvrent automatiquement après une production réussie.
 
 Les recommandations détaillées sont dans `*_recommandations_latest.xlsx`. `*_piliers_latest_available.xlsx` conserve la dernière date commune des piliers, qui peut être plus récente que celle des recommandations. `*_performance_portefeuille.xlsx` contient les rendements mensuels ; les courbes d’Output montrent les cumuls.
 
 research.save_outputs() écrit aussi *_historique_modele.xlsx. Cet export complet n'est pas actualisé par le lancement mensuel standard.
 
-Le mode se choisit directement dans l’appel `main(mode="production", output_dir=None, history_file=None)` placé en fin de `actualiser_excel.py` ; aucune option de ligne de commande n’est nécessaire.
+Le mode se choisit dans la variable `mode` en fin de `actualiser_excel.py` ; les paramètres `output_dir` et `history_file` se règlent dans l’appel `main(...)`. Aucune option de ligne de commande n’est nécessaire.
 
 ## Flux selon le mode
 

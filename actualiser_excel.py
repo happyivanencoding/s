@@ -6,6 +6,7 @@
 2. Calculer les deux marchés avec model_secto.
 3. Coller les résultats dans les classeurs modèles sans refaire les formats.
 4. Écrire le bilan des dates et des données manquantes.
+5. Ouvrir les deux classeurs après une production réussie.
 
 FLUX
 local_config + Excel -> data_utils -> model_secto
@@ -15,11 +16,14 @@ Les données fournisseurs doivent être rafraîchies et enregistrées avant le l
 """
 
 from pathlib import Path
+import os
 import shutil
 
 import pandas as pd
 
-from local_config import PROJECT_DIR, HISTORY_CONFIG, MACRO_EXCEL_FILE, SECTOR_DEVIATION_EXCEL_FILE
+from local_config import (
+    EU_CONFIG, US_CONFIG, PROJECT_DIR, HISTORY_CONFIG, MACRO_EXCEL_FILE, SECTOR_DEVIATION_EXCEL_FILE,
+)
 from data_utils import normalize_metadata, save_table
 from model_secto import SectorModel, save_all_outputs
 from excel_output import compute_portfolio, save_excel, update_workbooks
@@ -191,8 +195,12 @@ def main(mode="production", output_dir=None, history_file=None):
 
 
 if __name__ == "__main__":
+    mode = "production"  # "production", "rebuild" ou "replay"
     main(
-        mode="production",  # "production", "rebuild" ou "replay"
+        mode=mode,
         output_dir=None,    # Dossier de résultats pour rebuild et replay.
         history_file=None,  # Snapshot à lire en replay (None = data_history.xlsx).
     )
+    if mode == "production":
+        for config in (EU_CONFIG, US_CONFIG):
+            os.startfile(config["excel_file"])

@@ -10,7 +10,7 @@ STRUCTURE DU FICHIER
 6. Exports : écrire les tableaux de scores en Excel.
 
 FLUX DES DONNÉES
-Actualiser.bat -> actualiser_excel.main()
+python actualiser_excel.py -> actualiser_excel.main()
     -> local_config.py : chemins et paramètres
     -> data_utils : Excel et historique mensuel figé
     -> SectorModel.run() -> run_model()
@@ -20,7 +20,7 @@ Actualiser.bat -> actualiser_excel.main()
     -> actualiser_excel : bilan de production
 
 Exemple : SectorModel("EU").run_production()
-Pour actualiser aussi les XLSM : lancer Actualiser.bat.
+Pour actualiser aussi les XLSM : lancer python actualiser_excel.py.
 """
 
 from copy import deepcopy

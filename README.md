@@ -1,6 +1,6 @@
 # Modèle sectoriel EU / US
 
-Le projet calcule les scores et recommandations sectoriels EU et US. La commande mensuelle reste `Actualiser.bat` ; actualiser_excel.py permet aussi de reconstruire ou de rejouer tout l’historique.
+Le projet calcule les scores et recommandations sectoriels EU et US. `python actualiser_excel.py` lance la production mensuelle et permet aussi de reconstruire ou de rejouer tout l’historique.
 
 ## Structure et pipeline
 
@@ -46,19 +46,23 @@ Le guide présente une synthèse opérationnelle en quatre pages et trois annexe
 | `rebuild` | Toute l'histoire accessible dans les Excel actuels, sans historique initial | Dossier choisi, avec un nouveau `data_history.xlsx` |
 | `replay` | `data_history.xlsx` uniquement ; aucun fichier source Excel ouvert | Dossier choisi, sans modifier l'historique |
 
-Modifier l'appel `main(...)` à la fin de `actualiser_excel.py`, puis lancer `python actualiser_excel.py`.
+Choisir `mode` et renseigner les paramètres de `main(...)` à la fin de `actualiser_excel.py`, puis lancer `python actualiser_excel.py`.
 
 ~~~python
 if __name__ == "__main__":
+    mode = "production"  # "production", "rebuild" ou "replay"
     main(
-        mode="production",  # "production", "rebuild" ou "replay"
+        mode=mode,
         output_dir=None,    # Dossier choisi pour rebuild/replay.
         history_file=None,  # Historique à lire en replay.
     )
+    if mode == "production":
+        for config in (EU_CONFIG, US_CONFIG):
+            os.startfile(config["excel_file"])
 ~~~
 
-Pour reconstruire l'historique, utiliser `main(mode="rebuild", output_dir="output/rebuild_octobre")`.
-Pour le rejouer sans ouvrir Excel, utiliser `main(mode="replay", output_dir="output/replay_test", history_file="output/rebuild_octobre/data_history.xlsx")`.
+Pour reconstruire l'historique, choisir `mode = "rebuild"` et `output_dir="output/rebuild_octobre"` dans `main(...)`.
+Pour le rejouer sans ouvrir Excel, choisir `mode = "replay"`, `output_dir="output/replay_test"` et `history_file="output/rebuild_octobre/data_history.xlsx"`.
 
 `rebuild` et `replay` demandent un dossier de sortie vide. Si `history_file=None` en replay, le modèle lit le `data_history.xlsx` du projet.
 
@@ -70,11 +74,11 @@ Les modes rebuild et replay écrivent les historiques de scores EU/US, les rende
 2. Rafraîchir les données FactSet / Bloomberg dans Excel, puis enregistrer les valeurs.
 3. Mettre à jour le fichier macro, le taux US 10 ans de Cycle macro et les poids de Bench.
 4. Fermer les deux classeurs sectoriels, le fichier macro, data_history.xlsx et reco_secto_facto.xlsx.
-5. Double-cliquer sur Actualiser.bat.
+5. Depuis le dossier du projet, lancer `python actualiser_excel.py` ou exécuter ce fichier Python dans VS Code.
 6. Lire output/actualisation.txt et contrôler Output, Dashboard, Reco_histo ainsi que reco_secto_facto.xlsx.
 7. Conserver et diffuser la version validée.
 
-Le lancement calcule les deux modèles et remplace les valeurs d'Output dans des copies des classeurs d'origine. Les formats, les formules du Dashboard et la disposition des graphiques sont ceux du modèle Excel et ne sont pas reconstruits par Python. Les graphiques sont rafraîchis et Reco_histo ne reçoit que les nouveaux mois. Aucun collage manuel n'est nécessaire.
+Le lancement calcule les deux modèles et remplace les valeurs d'Output dans des copies des classeurs d'origine. Après une production réussie, les deux classeurs EU/US s'ouvrent automatiquement. Les formats, les formules du Dashboard et la disposition des graphiques sont ceux du modèle Excel et ne sont pas reconstruits par Python. Les graphiques sont rafraîchis et Reco_histo ne reçoit que les nouveaux mois. Aucun collage manuel n'est nécessaire.
 
 La collecte fournisseur n'est pas déclenchée par ce lancement. Le programme ne filtre pas automatiquement les observations du mois en cours. Les premières observations enregistrées dans data_history.xlsx (feuille Historique_data) restent figées.
 
