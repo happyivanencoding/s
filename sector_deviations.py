@@ -11,6 +11,7 @@ import shutil
 import pandas as pd
 from openpyxl.utils import get_column_letter
 
+from data_utils import normalize_metadata
 from local_config import EU_SECTORS, US_SECTORS, SECTOR_DEVIATION_EXCEL_FILE
 
 
@@ -97,7 +98,6 @@ def update_sector_deviations(models, output_path=SECTOR_DEVIATION_EXCEL_FILE):
         app.Visible = False
         app.DisplayAlerts = False
         app.EnableEvents = False
-        app.AutomationSecurity = 3
         app.AskToUpdateLinks = False
         workbook = None
         try:
@@ -122,5 +122,6 @@ def update_sector_deviations(models, output_path=SECTOR_DEVIATION_EXCEL_FILE):
                 workbook.Close(False)
             app.Quit()
 
+        normalize_metadata(working)
         os.replace(working, target)
     return target

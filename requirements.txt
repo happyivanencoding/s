@@ -3,5 +3,6 @@ pandas==2.2.2
 numpy==1.26.4
 openpyxl==3.1.2
 matplotlib==3.10.9
+ipykernel==6.28.0
 lxml==5.2.1
 pywin32==305.*

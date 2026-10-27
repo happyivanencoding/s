@@ -498,6 +498,15 @@ def preserve_inputs(source, destination):
     # Reprendre ces éléments dans le fichier source conserve le modèle visuel.
     with ZipFile(source) as before, ZipFile(destination) as after:
         sheets_before, sheets_after = sheet_paths(before), sheet_paths(after)
+        # Excel peut changer l’ordre des styles en enregistrant le classeur.
+        original_styles = ET.fromstring(before.read("xl/styles.xml")).find("s:cellXfs", NS)
+        saved_styles = ET.fromstring(after.read("xl/styles.xml")).find("s:cellXfs", NS)
+        saved_keys = [ET.tostring(style, method="c14n", exclusive=True) for style in saved_styles]
+        saved_indices = {key: str(i) for i, key in enumerate(saved_keys)}
+        style_map = []
+        for i, style in enumerate(original_styles):
+            key = ET.tostring(style, method="c14n", exclusive=True)
+            style_map.append(str(i) if i < len(saved_keys) and saved_keys[i] == key else saved_indices.get(key))
         texts = []
         if "xl/sharedStrings.xml" in before.namelist():
             texts = [
@@ -509,7 +518,15 @@ def preserve_inputs(source, destination):
             if name in ("Dashboard", "Output", "Reco_histo"):
                 continue
             data = deepcopy(ET.fromstring(before.read(path)).find("s:sheetData", NS))
-            for cell in data.findall(".//s:c[@t='s']", NS):
+            for cell in data.findall(".//s:c", NS):
+                old_style = cell.get("s", "0")
+                new_style = style_map[int(old_style)]
+                if new_style is None:
+                    raise ValueError(f"Style manquant pour {name} : {old_style}")
+                if new_style != old_style:
+                    cell.set("s", new_style)
+                if cell.get("t") != "s":
+                    continue
                 value = cell.find("s:v", NS)
                 text = texts[int(value.text)]
                 cell.remove(value)
@@ -550,7 +567,7 @@ def preserve_inputs(source, destination):
                 if "calcChain" in element.get("Type", "") or "calcChain" in element.get("PartName", ""):
                     document.remove(element)
             changes[path] = ET.tostring(document, encoding="UTF-8", xml_declaration=True)
-        temporary = destination.with_suffix(".tmp.xlsm")
+        temporary = destination.with_suffix(".tmp.xlsx")
         with ZipFile(temporary, "w", ZIP_DEFLATED) as output:
             for element in after.infolist():
                 if element.filename != "xl/calcChain.xml":

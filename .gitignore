@@ -11,7 +11,6 @@ __pycache__/
 # Fichiers temporaires Excel
 ~$*
 *.tmp.xlsx
-*.tmp.xlsm
 
 # Environnements et éditeurs
 .venv/

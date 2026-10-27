@@ -589,8 +589,7 @@ def update_workbooks(models, output_dir):
         )  # Nouvelle instance Excel, indépendante des classeurs ouverts.
         app.Visible = True  # Affiche Excel pendant la mise à jour.
         app.DisplayAlerts = False  # Évite les fenêtres de confirmation.
-        app.EnableEvents = False  # N'exécute pas les événements VBA des feuilles.
-        app.AutomationSecurity = 3  # 3 = macros désactivées à l'ouverture par Python.
+        app.EnableEvents = False  # Désactive les événements Excel pendant la mise à jour.
         app.AskToUpdateLinks = False  # N'interroge pas les sources liées.
         blank_workbook = app.Workbooks.Add()  # Classeur de support pour la session Excel.
         app.Calculation = -4135  # -4135 = calcul manuel, sans recalcul global des entrées.
@@ -599,7 +598,7 @@ def update_workbooks(models, output_dir):
         try:
             for model in models:  # Traite EU et US avec les mêmes étapes.
                 print(f"Mise à jour Excel {model.universe}...", flush=True)
-                original = model.excel_file  # XLSM du marché utilisé comme modèle.
+                original = model.excel_file  # Classeur du marché utilisé comme modèle.
                 copy_path = work_dir / original.name  # Fichier modifié avant validation.
                 shutil.copy2(original, copy_path)  # L'original reste intact pendant le calcul.
                 wb = app.Workbooks.Open(
@@ -616,7 +615,7 @@ def update_workbooks(models, output_dir):
                     wb.Close(False)  # Ferme la copie, déjà enregistrée par fill_workbook.
 
                 preserve_inputs(original, copy_path)  # Garde les entrées et formules du modèle.
-                normalize_metadata(copy_path)  # Normalise les métadonnées du XLSM.
+                normalize_metadata(copy_path)  # Normalise les métadonnées du classeur.
                 normalize_metadata(export)  # Normalise celles de l'export Output.
         finally:
             blank_workbook.Close(False)  # Ferme le classeur de support sans sauvegarde.

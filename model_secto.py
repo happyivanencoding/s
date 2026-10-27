@@ -15,11 +15,11 @@ python actualiser_excel.py -> actualiser_excel.main()
     -> SectorModel.run() -> run_model()
          -> mesures -> sous-scores -> six piliers
          -> macro et taux -> rangs -> votes -> recommandations
-    -> excel_output : valeurs, formats et graphiques dans les XLSM
+    -> excel_output : valeurs, formats et graphiques dans les XLSX
     -> actualiser_excel : bilan de production
 
 Exemple : SectorModel("EU").run_production()
-Pour actualiser aussi les XLSM : lancer python actualiser_excel.py.
+Pour actualiser aussi les XLSX : lancer python actualiser_excel.py.
 """
 
 from copy import deepcopy

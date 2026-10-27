@@ -136,7 +136,7 @@ def run_production():
 
 
 def run_history(mode, output_dir, history_file=None):
-    """Exporte rebuild ou replay sans toucher aux XLSM ni à l'output mensuel."""
+    """Exporte rebuild ou replay sans toucher aux XLSX ni à l'output mensuel."""
     if output_dir is None:
         raise ValueError("Indiquer output_dir pour rebuild ou replay.")
     destination = Path(output_dir).expanduser().resolve()
