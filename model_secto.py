@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Modèle sectoriel EU / US.
 
 STRUCTURE DU FICHIER

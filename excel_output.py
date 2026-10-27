@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Tableaux et présentation des classeurs sectoriels.
 
 1. Valeurs : portefeuille, grille Output, détails et historiques.

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Utilitaires de données et de fichiers Excel.
 
 1. Lecture des fichiers et dates mensuelles.

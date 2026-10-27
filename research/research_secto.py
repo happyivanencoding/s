@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Outils de recherche pour les modèles sectoriels EU et US."""
 
 from copy import deepcopy

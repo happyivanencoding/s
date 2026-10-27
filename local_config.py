@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Configuration commune aux modèles Europe et US.
 
 Modifier ici les chemins, les secteurs, les variables et les pondérations.

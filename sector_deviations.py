@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Copie les recommandations dans le classeur d'allocation existant.
 
 Le classeur conserve son mapping, ses formules et sa présentation.
