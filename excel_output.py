@@ -515,113 +515,132 @@ def append_recommendations(sheet, history, sectors):
     return len(rows)
 
 
-def fill_workbook(workbook, results, config, export_file):
+def fill_workbook(workbook, results, config):
     """Remplace les valeurs en conservant la présentation du modèle Excel."""
+
     workbook.Activate()
+
     grid, _, _ = build_output(results, config)
     sheet = workbook.Worksheets("Output")
+
     last_row = sheet.UsedRange.Rows.Count
     last_column = get_column_letter(grid.shape[1])
 
-    # 1. Conserver les formats du modèle ; effacer seulement les anciennes valeurs.
+    # Effacer les anciennes valeurs sans supprimer les formats.
     sheet.UsedRange.ClearContents()
+
     if len(grid) > last_row:
-        # Prolonger le format de la dernière ligne pour les nouveaux mois.
+        # Prolonger le format uniquement si de nouvelles lignes sont nécessaires.
         sheet.Range(f"A{last_row}:{last_column}{last_row}").Copy()
-        sheet.Range(f"A{last_row+1}:{last_column}{len(grid)}").PasteSpecial(Paste=-4122)
+        sheet.Range(
+            f"A{last_row + 1}:{last_column}{len(grid)}"
+        ).PasteSpecial(Paste=-4122)
         workbook.Application.CutCopyMode = False
 
-    values = tuple(tuple(excel_value(v) for v in row) for row in grid.to_numpy())
+    # Écrire directement les valeurs dans le modèle.
+    values = tuple(
+        tuple(excel_value(value) for value in row)
+        for row in grid.to_numpy()
+    )
     sheet.Range(f"A1:{last_column}{len(grid)}").Value2 = values
+
     if (
         sheet.Range("B2").Value2 != excel_value(results["history"]["date"].max())
         or sheet.Range("D1").Value2 != "Secteur"
     ):
         raise RuntimeError("Les valeurs n'ont pas été écrites dans Output.")
 
-    # 2. Ajouter les recommandations nouvelles sans toucher à l'historique.
+    # Ajouter les nouvelles recommandations à l'historique.
     added_months = append_recommendations(
-        workbook.Worksheets("Reco_histo"), results["history"], config["sectors"]
+        workbook.Worksheets("Reco_histo"),
+        results["history"],
+        config["sectors"],
     )
 
-    # 3. Actualiser les graphiques en réutilisant les liens du modèle.
+    # Actualiser le Dashboard et ses graphiques.
     dashboard = workbook.Worksheets("Dashboard")
     sheet.Calculate()
     dashboard.Calculate()
+
     for chart in dashboard.ChartObjects():
         chart.Chart.Refresh()
 
-    # 4. Copier les valeurs et les formats dans le fichier Output autonome.
-    export = workbook.Application.Workbooks.Add()
-    try:
-        export_sheet = export.Worksheets(1)
-        export_sheet.Name = "Output"
-        source = sheet.Range(f"A1:{last_column}{len(grid)}")
-        source.Copy(Destination=export_sheet.Range("A1"))
-        source.Copy()
-        export_sheet.Range("A1").PasteSpecial(Paste=8)  # Largeurs des colonnes.
-        workbook.Application.CutCopyMode = False
-        for row_number in range(1, len(grid) + 1):
-            export_sheet.Rows(row_number).RowHeight = sheet.Rows(row_number).RowHeight
-        export.SaveAs(str(export_file), FileFormat=51)
-    finally:
-        export.Close(False)
-
-    # 5. Enregistrer le modèle actualisé sur la page Dashboard.
     workbook.Activate()
     dashboard.Activate()
     workbook.Save()
+
     return added_months
 
 
 # 3. Mise à jour des deux classeurs avec Excel pour Windows
 
 
-def update_workbooks(models, output_dir):
+def update_workbooks(models):
     """Prépare les deux fichiers, puis remplace les originaux après succès."""
     import win32com.client
 
-    added_months = {}  # Nombre de mois ajoutés à Reco_histo pour chaque marché.
-    with TemporaryDirectory(prefix="sector_excel_") as temporary:  # Dossier de travail provisoire.
+    added_months = {}
+
+    with TemporaryDirectory(prefix="sector_excel_") as temporary:
         work_dir = Path(temporary)
+
         app = win32com.client.gencache.EnsureDispatch(
             win32com.client.DispatchEx("Excel.Application")
-        )  # Nouvelle instance Excel, indépendante des classeurs ouverts.
-        app.Visible = True  # Affiche Excel pendant la mise à jour.
-        app.DisplayAlerts = False  # Évite les fenêtres de confirmation.
-        app.EnableEvents = False  # Désactive les événements Excel pendant la mise à jour.
-        app.AskToUpdateLinks = False  # N'interroge pas les sources liées.
-        blank_workbook = app.Workbooks.Add()  # Classeur de support pour la session Excel.
-        app.Calculation = -4135  # -4135 = calcul manuel, sans recalcul global des entrées.
-        app.CalculateBeforeSave = False  # N'impose pas un recalcul lors de l'enregistrement.
+        )
+        app.Visible = False
+        app.DisplayAlerts = False
+        app.EnableEvents = False
+        app.AskToUpdateLinks = False
+
+        blank_workbook = app.Workbooks.Add()
+        app.Calculation = -4135  # Calcul manuel.
+        app.CalculateBeforeSave = False
 
         try:
-            for model in models:  # Traite EU et US avec les mêmes étapes.
-                print(f"Mise à jour Excel {model.universe}...", flush=True)
-                original = model.excel_file  # Classeur du marché utilisé comme modèle.
-                copy_path = work_dir / original.name  # Fichier modifié avant validation.
-                shutil.copy2(original, copy_path)  # L'original reste intact pendant le calcul.
+            for model in models:
+                print(
+                    f"Mise à jour Excel {model.universe}...",
+                    flush=True,
+                )
+
+                original = model.excel_file
+                copy_path = work_dir / original.name
+
+                # Travailler sur une copie avant de remplacer l'original.
+                shutil.copy2(original, copy_path)
+
                 wb = app.Workbooks.Open(
-                    str(copy_path), UpdateLinks=0, ReadOnly=False
-                )  # 0 : liens externes non actualisés ; False : ouverture en écriture.
-                export = output_dir / f"{model.config['output_prefix']}_output.xlsx"
+                    str(copy_path),
+                    UpdateLinks=0,
+                    ReadOnly=False,
+                )
+
                 try:
-                    if wb.ReadOnly:  # Vérifie que la copie est réellement modifiable.
-                        raise RuntimeError(f"Classeur en lecture seule : {copy_path.name}")
+                    if wb.ReadOnly:
+                        raise RuntimeError(
+                            f"Classeur en lecture seule : {copy_path.name}"
+                        )
+
                     added_months[model.universe] = fill_workbook(
-                        wb, model.results, model.config, export
-                    )  # Écrit Output, complète Reco_histo et rafraîchit Dashboard.
+                        wb,
+                        model.results,
+                        model.config,
+                    )
                 finally:
-                    wb.Close(False)  # Ferme la copie, déjà enregistrée par fill_workbook.
+                    wb.Close(False)
 
-                preserve_inputs(original, copy_path)  # Garde les entrées et formules du modèle.
-                normalize_metadata(copy_path)  # Normalise les métadonnées du classeur.
-                normalize_metadata(export)  # Normalise celles de l'export Output.
+                preserve_inputs(original, copy_path)
+                normalize_metadata(copy_path)
+
         finally:
-            blank_workbook.Close(False)  # Ferme le classeur de support sans sauvegarde.
-            app.Quit()  # Arrête uniquement cette instance Excel.
+            blank_workbook.Close(False)
+            app.Quit()
 
-        # Remplacer les originaux seulement après la réussite des deux marchés.
+        # Remplacer les deux originaux après réussite des deux mises à jour.
         for model in models:
-            shutil.copy2(work_dir / model.excel_file.name, model.excel_file)
+            shutil.copy2(
+                work_dir / model.excel_file.name,
+                model.excel_file,
+            )
+
     return added_months

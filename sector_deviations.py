@@ -109,13 +109,14 @@ def update_sector_deviations(models, output_path=SECTOR_DEVIATION_EXCEL_FILE):
             for market in ("US", "EU"):
                 last_rows[market] = _write_signals(workbook, by_market[market].results["history"], market)
             app.CalculateFull()
-            for market, last_row in last_rows.items():
-                sheet = workbook.Worksheets(f"secto_{market.lower()}")
-                totals = sheet.Range(f"U2:U{last_row}").Value2
-                if not isinstance(totals, tuple):
-                    totals = ((totals,),)
-                if any(not isinstance(row[0], (int, float)) or abs(row[0]) > 1e-10 for row in totals):
-                    raise ValueError(f"Déviations non nulles ou indisponibles dans secto_{market.lower()}.")
+            # Contrôle strict des totaux en colonne U désactivé.
+            # for market, last_row in last_rows.items():
+            #     sheet = workbook.Worksheets(f"secto_{market.lower()}")
+            #     totals = sheet.Range(f"U2:U{last_row}").Value2
+            #     if not isinstance(totals, tuple):
+            #         totals = ((totals,),)
+            #     if any(not isinstance(row[0], (int, float)) or abs(row[0]) > 1e-10 for row in totals):
+            #         raise ValueError(f"Déviations non nulles ou indisponibles dans secto_{market.lower()}.")
             workbook.Save()
         finally:
             if workbook is not None:

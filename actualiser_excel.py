@@ -126,7 +126,7 @@ def run_production():
         print(f"Calcul du modèle {model.universe}...", flush=True)
         model.run_production(output_dir=output)
 
-    added_months = update_workbooks(models, output)
+    added_months = update_workbooks(models)
     deviation_file = update_sector_deviations(models)  # Repartir les recommandations sur les 19 supersecteurs.
     print(f"Déviations sectorielles : {deviation_file.name}")
     rows = [model_summary(model, added_months[model.universe]) for model in models]
