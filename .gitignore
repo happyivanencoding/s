@@ -1,5 +1,6 @@
-# Résultats reproductibles et sauvegarde avant production
+# Résultats, sauvegarde avant production et archives locales
 output/
+archive/
 
 # Python et notebooks exécutés
 __pycache__/

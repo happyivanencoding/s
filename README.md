@@ -123,6 +123,6 @@ Le rendement du benchmark US provient de WIUSAU Index dans Returns_EQ. Le libell
 
 Conserver le code, les notebooks sans sorties, les quatre fichiers Excel source, requirements.txt et le guide Word. data_history.xlsx fait partie des données à conserver : ses premières observations ne se reconstruisent pas à l'identique à partir de données révisées.
 
-Le dossier output/, les caches Python, les environnements locaux et les fichiers temporaires Excel sont exclus par .gitignore. Les exports de recherche peuvent être supprimés puis recréés. Garder une archive externe des versions mensuelles validées.
+Les dossiers output/ et archive/, les caches Python, les environnements locaux et les fichiers temporaires Excel sont exclus par .gitignore. archive/ conserve localement les anciens exports CSV, essais, diagnostics et guides. Les exports de recherche peuvent être supprimés puis recréés. Garder une archive externe des versions mensuelles validées.
 
 Voir DOCUMENTATION.md pour l'index technique.
